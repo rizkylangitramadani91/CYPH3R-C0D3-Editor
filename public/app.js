@@ -958,8 +958,12 @@ function initializeUI() {
     document.addEventListener('click', hideContextMenu);
     document.addEventListener('contextmenu', handleRightClick);
     document.addEventListener('keydown', handleKeyboardShortcuts);
-    document.addEventListener('dragover', e => e.preventDefault());
-    document.addEventListener('drop', e => e.preventDefault());
+    // Remove default drag/drop prevention - we'll handle it properly
+    // document.addEventListener('dragover', e => e.preventDefault());
+    // document.addEventListener('drop', e => e.preventDefault());
+    
+    // Initialize external file drop zone
+    initializeExternalDropZone();
 }
 
 // File tree operations
@@ -3563,3 +3567,381 @@ function updateConnectionStatus(status) {
         }
     }
 }
+
+// ===== EXTERNAL FILE DROP ZONE =====
+function initializeExternalDropZone() {
+    const fileExplorer = document.querySelector('.file-explorer');
+    const fileTree = document.querySelector('.file-tree');
+    let dropZone = null;
+    let isDraggingFiles = false;
+    
+    // Create drop zone overlay
+    function createDropZone() {
+        if (dropZone) return dropZone;
+        
+        dropZone = document.createElement('div');
+        dropZone.className = 'external-drop-zone';
+        dropZone.innerHTML = `
+            <div class="drop-zone-content">
+                <i class="fas fa-cloud-upload-alt drop-icon"></i>
+                <h2>DROP FILES HERE</h2>
+                <p>Drop files or folders to upload</p>
+                <div class="drop-zone-border"></div>
+            </div>
+        `;
+        
+        // Style the drop zone
+        Object.assign(dropZone.style, {
+            position: 'absolute',
+            top: '0',
+            left: '0',
+            right: '0',
+            bottom: '0',
+            backgroundColor: 'rgba(0, 255, 65, 0.1)',
+            border: '3px dashed #00ff41',
+            display: 'none',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: '1000',
+            pointerEvents: 'none'
+        });
+        
+        const style = document.createElement('style');
+        style.textContent = `
+            .external-drop-zone {
+                backdrop-filter: blur(5px);
+            }
+            .drop-zone-content {
+                text-align: center;
+                color: #00ff41;
+                animation: pulse 1.5s infinite;
+            }
+            .drop-icon {
+                font-size: 64px;
+                margin-bottom: 20px;
+                animation: bounce 1s infinite;
+            }
+            .drop-zone-content h2 {
+                font-size: 24px;
+                margin: 10px 0;
+                text-shadow: 0 0 20px #00ff41;
+            }
+            .drop-zone-content p {
+                font-size: 14px;
+                opacity: 0.8;
+            }
+            .drop-zone-border {
+                position: absolute;
+                top: 10px;
+                left: 10px;
+                right: 10px;
+                bottom: 10px;
+                border: 2px solid #00ff41;
+                border-radius: 10px;
+                animation: rotate-border 3s linear infinite;
+            }
+            @keyframes bounce {
+                0%, 100% { transform: translateY(0); }
+                50% { transform: translateY(-10px); }
+            }
+            @keyframes pulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.8; }
+            }
+            @keyframes rotate-border {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+            .file-tree.drag-over {
+                background: rgba(0, 255, 65, 0.05);
+                box-shadow: inset 0 0 30px rgba(0, 255, 65, 0.2);
+            }
+        `;
+        document.head.appendChild(style);
+        
+        fileExplorer.style.position = 'relative';
+        fileExplorer.appendChild(dropZone);
+        
+        return dropZone;
+    }
+    
+    // Check if dragging files from outside
+    function isDraggingExternalFiles(event) {
+        if (!event.dataTransfer) return false;
+        
+        const types = event.dataTransfer.types;
+        return types.includes('Files') || types.includes('application/x-moz-file');
+    }
+    
+    // Show drop zone
+    function showDropZone() {
+        if (!dropZone) createDropZone();
+        dropZone.style.display = 'flex';
+        fileTree.classList.add('drag-over');
+        isDraggingFiles = true;
+    }
+    
+    // Hide drop zone
+    function hideDropZone() {
+        if (dropZone) dropZone.style.display = 'none';
+        fileTree.classList.remove('drag-over');
+        isDraggingFiles = false;
+    }
+    
+    // Handle drag enter
+    document.addEventListener('dragenter', (event) => {
+        if (isDraggingExternalFiles(event)) {
+            event.preventDefault();
+            showDropZone();
+        }
+    });
+    
+    // Handle drag over
+    document.addEventListener('dragover', (event) => {
+        if (isDraggingExternalFiles(event)) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+        }
+    });
+    
+    // Handle drag leave
+    document.addEventListener('dragleave', (event) => {
+        // Only hide if leaving the document
+        if (event.clientX === 0 && event.clientY === 0) {
+            hideDropZone();
+        }
+    });
+    
+    // Handle drop on file explorer
+    fileExplorer.addEventListener('drop', async (event) => {
+        if (!isDraggingExternalFiles(event)) return;
+        
+        event.preventDefault();
+        event.stopPropagation();
+        hideDropZone();
+        
+        const files = event.dataTransfer.files;
+        if (files.length === 0) return;
+        
+        // Check where the drop occurred
+        const dropTarget = event.target.closest('.file-item');
+        let targetPath = 'workspace';
+        
+        if (dropTarget && dropTarget.dataset.isDirectory === 'true') {
+            targetPath = dropTarget.dataset.path;
+        }
+        
+        await handleExternalFileDrop(files, targetPath);
+    });
+    
+    // Handle drop on document (to prevent default browser behavior)
+    document.addEventListener('drop', (event) => {
+        if (isDraggingExternalFiles(event) && !event.defaultPrevented) {
+            event.preventDefault();
+            hideDropZone();
+        }
+    });
+}
+
+// Handle external files drop
+async function handleExternalFileDrop(fileList, targetPath = 'workspace') {
+    const files = Array.from(fileList);
+    const totalFiles = files.length;
+    
+    console.log(`[DROP] Dropping ${totalFiles} files to ${targetPath}`);
+    showNotification(`UPLOADING ${totalFiles} FILE${totalFiles > 1 ? 'S' : ''}...`, 'info');
+    
+    // Show progress overlay
+    showOperationStatus('UPLOADING FILES', `Processing ${totalFiles} items...`, 0);
+    
+    let successCount = 0;
+    let errorCount = 0;
+    const errors = [];
+    
+    // Process files with progress updates
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const progress = ((i + 1) / totalFiles) * 100;
+        
+        updateOperationProgress(
+            'UPLOADING FILES',
+            `${file.name} (${i + 1}/${totalFiles})`,
+            progress
+        );
+        
+        try {
+            // Check if it's a folder (webkitRelativePath is set for folders)
+            if (file.webkitRelativePath) {
+                // Handle folder upload
+                const relativePath = file.webkitRelativePath;
+                const pathParts = relativePath.split('/');
+                const folderStructure = pathParts.slice(0, -1).join('/');
+                
+                // Create folder structure if needed
+                if (folderStructure) {
+                    await createFolderStructure(targetPath, folderStructure);
+                }
+                
+                // Upload file to correct path
+                const uploadPath = `${targetPath}/${folderStructure}`;
+                await uploadFileToPath(file, uploadPath, pathParts[pathParts.length - 1]);
+            } else {
+                // Regular file upload
+                await uploadFileToPath(file, targetPath);
+            }
+            successCount++;
+        } catch (error) {
+            console.error(`[DROP] Error uploading ${file.name}:`, error);
+            errors.push(`${file.name}: ${error.message}`);
+            errorCount++;
+        }
+    }
+    
+    // Hide progress
+    hideOperationStatus();
+    
+    // Refresh file tree
+    await loadFileTree();
+    
+    // Show results
+    if (successCount > 0 && errorCount === 0) {
+        showNotification(
+            `✓ SUCCESSFULLY UPLOADED ${successCount} FILE${successCount > 1 ? 'S' : ''}`,
+            'success'
+        );
+        playHackerSound('success');
+    } else if (errorCount > 0) {
+        showNotification(
+            `UPLOAD COMPLETE: ${successCount} SUCCESS, ${errorCount} FAILED`,
+            'warning'
+        );
+        
+        // Show detailed errors
+        if (errors.length > 0) {
+            setTimeout(() => {
+                errors.forEach(err => showNotification(err, 'error'));
+            }, 1000);
+        }
+    }
+}
+
+// Upload file to specific path
+async function uploadFileToPath(file, targetPath, customName = null) {
+    const formData = new FormData();
+    formData.append('file', file, customName || file.name);
+    formData.append('path', targetPath);
+    
+    const response = await fetch('/api/file/upload', {
+        method: 'POST',
+        body: formData
+    });
+    
+    if (!response.ok) {
+        const result = await response.json();
+        throw new Error(result.error || 'Upload failed');
+    }
+    
+    return response.json();
+}
+
+// Create folder structure for nested uploads
+async function createFolderStructure(basePath, folderPath) {
+    const folders = folderPath.split('/');
+    let currentPath = basePath;
+    
+    for (const folder of folders) {
+        if (!folder) continue;
+        
+        currentPath = `${currentPath}/${folder}`;
+        
+        try {
+            await fetch('/api/directory/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: currentPath })
+            });
+        } catch (error) {
+            console.log(`[DROP] Folder might already exist: ${currentPath}`);
+        }
+    }
+}
+
+// Update operation progress
+function updateOperationProgress(title, detail, progress) {
+    const statusContent = document.querySelector('.status-content');
+    if (statusContent) {
+        const titleEl = statusContent.querySelector('.operation-title');
+        const detailEl = statusContent.querySelector('.operation-detail');
+        const progressFill = statusContent.querySelector('.progress-fill');
+        
+        if (titleEl) titleEl.textContent = title;
+        if (detailEl) detailEl.textContent = detail;
+        if (progressFill) progressFill.style.width = `${progress}%`;
+    }
+}
+
+// Also add support for folder selection in the file input
+document.addEventListener('DOMContentLoaded', function() {
+    const uploadInput = document.getElementById('upload-input');
+    if (uploadInput) {
+        // Add webkitdirectory attribute for folder support
+        uploadInput.setAttribute('webkitdirectory', '');
+        uploadInput.setAttribute('directory', '');
+        uploadInput.setAttribute('mozdirectory', '');
+        
+        // Add a second input for files only
+        const fileOnlyInput = document.createElement('input');
+        fileOnlyInput.type = 'file';
+        fileOnlyInput.id = 'file-only-input';
+        fileOnlyInput.multiple = true;
+        fileOnlyInput.style.display = 'none';
+        document.body.appendChild(fileOnlyInput);
+        
+        // Update upload button to show options
+        const uploadBtn = document.getElementById('upload-btn');
+        if (uploadBtn) {
+            uploadBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                
+                // Create a simple menu
+                const menu = document.createElement('div');
+                menu.className = 'upload-menu';
+                menu.style.cssText = `
+                    position: absolute;
+                    background: #000;
+                    border: 1px solid #00ff41;
+                    border-radius: 5px;
+                    padding: 5px 0;
+                    z-index: 1000;
+                    box-shadow: 0 0 20px rgba(0, 255, 65, 0.5);
+                `;
+                
+                menu.innerHTML = `
+                    <div class="upload-option" onclick="document.getElementById('file-only-input').click(); this.parentElement.remove();" style="padding: 10px 20px; cursor: pointer; color: #00ff41;">
+                        <i class="fas fa-file"></i> Upload Files
+                    </div>
+                    <div class="upload-option" onclick="document.getElementById('upload-input').click(); this.parentElement.remove();" style="padding: 10px 20px; cursor: pointer; color: #00ff41;">
+                        <i class="fas fa-folder"></i> Upload Folder
+                    </div>
+                `;
+                
+                const rect = uploadBtn.getBoundingClientRect();
+                menu.style.left = rect.left + 'px';
+                menu.style.top = rect.bottom + 5 + 'px';
+                
+                document.body.appendChild(menu);
+                
+                // Remove menu on click outside
+                setTimeout(() => {
+                    document.addEventListener('click', function removeMenu() {
+                        menu.remove();
+                        document.removeEventListener('click', removeMenu);
+                    });
+                }, 100);
+            });
+        }
+        
+        // Handle file-only input
+        fileOnlyInput.addEventListener('change', handleFileUpload);
+    }
+});
