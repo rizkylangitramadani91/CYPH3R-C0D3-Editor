@@ -254,7 +254,7 @@ body::after {
     flex: 1;
     height: calc(100vh - 60px); /* Only account for header */
     min-height: 400px;
-    margin-bottom: 200px; /* Default space for terminal */
+    margin-bottom: 400px; /* Increased from 200px to match terminal height */
     transition: margin-bottom 0.3s ease;
 }
 
@@ -790,7 +790,7 @@ body::after {
     bottom: 0;
     left: 0;
     right: 0;
-    height: 200px;
+    height: 400px; /* Increased from 200px to 400px for larger terminal */
     min-height: 40px;
     max-height: 70vh; /* Max 70% of viewport height */
     background: linear-gradient(135deg, #000000 0%, #001100 100%);
@@ -1304,13 +1304,13 @@ body::after {
     }
     
     .terminal-footer {
-        height: 150px;
-        max-height: 40vh;
+        height: 300px; /* Increased from 150px for better visibility on tablets */
+        max-height: 50vh; /* Increased max height */
     }
     
     .main-content {
         height: calc(100vh - 60px);
-        margin-bottom: 150px;
+        margin-bottom: 300px; /* Match terminal height */
     }
     
     .header h1 {
@@ -1342,7 +1342,7 @@ body::after {
     .main-content {
         flex-direction: column;
         height: calc(100vh - 60px);
-        margin-bottom: 120px;
+        margin-bottom: 200px; /* Increased to match new terminal height */
     }
     
     .file-explorer {
@@ -1361,8 +1361,8 @@ body::after {
     }
     
     .terminal-footer {
-        height: 120px;
-        max-height: 35vh;
+        height: 200px; /* Increased from 120px for better visibility on mobile */
+        max-height: 45vh; /* Increased max height */
     }
     
     .terminal-footer.minimized {

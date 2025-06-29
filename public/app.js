@@ -144,7 +144,17 @@ function initializeSocket() {
     socket.on('connect_error', (error) => {
         console.error('[SOCKET] Connection error:', error.message);
         console.error('[SOCKET] Error type:', error.type);
-        showNotification('CONNECTION ERROR: ' + error.message, 'error');
+        
+        // Check if error is due to authentication
+        if (error.message === 'Authentication required') {
+            console.log('[SOCKET] Authentication required, redirecting to login...');
+            showNotification('AUTHENTICATION REQUIRED - REDIRECTING TO LOGIN', 'error');
+            setTimeout(() => {
+                window.location.href = '/login.html';
+            }, 1500);
+        } else {
+            showNotification('CONNECTION ERROR: ' + error.message, 'error');
+        }
     });
     
     socket.on('reconnect_attempt', (attemptNumber) => {
@@ -275,10 +285,7 @@ function initializeSocket() {
         }
     });
     
-    socket.on('connect_error', (error) => {
-        console.error('Connection error:', error);
-        showNotification('CONNECTION ERROR: ' + error.message.toUpperCase(), 'error');
-    });
+    // Duplicate handler removed - already handled above
 }
 
 // Monaco Editor initialization

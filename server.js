@@ -29,6 +29,18 @@ const BAN_DURATION = parseInt(process.env.BAN_DURATION) || 15; // minutes
 // Track login attempts
 const loginAttempts = new Map();
 
+// Session Configuration for both Express and Socket.IO
+const sessionMiddleware = session({
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: false, // Set to true if using HTTPS
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
+});
+
 // Fix Socket.IO with proper CORS and transport configuration
 const io = socketIo(server, {
   cors: {
@@ -53,6 +65,29 @@ const io = socketIo(server, {
   }
 });
 
+// Apply session middleware to Socket.IO
+io.use((socket, next) => {
+  sessionMiddleware(socket.request, socket.request.res || {}, next);
+});
+
+// Socket.IO Authentication Middleware
+io.use((socket, next) => {
+  if (!AUTH_ENABLED) {
+    return next();
+  }
+  
+  const session = socket.request.session;
+  
+  if (!session || !session.authenticated) {
+    console.log('[SOCKET AUTH] Unauthorized connection attempt from:', socket.handshake.address);
+    return next(new Error('Authentication required'));
+  }
+  
+  console.log('[SOCKET AUTH] Authenticated connection from user:', session.username);
+  socket.userId = session.username;
+  next();
+});
+
 const PORT = process.env.PORT || 3000;
 const WORKSPACE_DIR = process.env.WORKSPACE_DIR || path.join(process.cwd(), 'workspace');
 
@@ -60,18 +95,6 @@ const WORKSPACE_DIR = process.env.WORKSPACE_DIR || path.join(process.cwd(), 'wor
 app.use(helmet({
   contentSecurityPolicy: false, // Disable CSP for Monaco Editor
   crossOriginEmbedderPolicy: false
-}));
-
-// Session Configuration
-app.use(session({
-  secret: SESSION_SECRET,
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: false, // Set to true if using HTTPS
-    httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
-  }
 }));
 
 // Rate limiting for login endpoint
@@ -105,7 +128,8 @@ const authMiddleware = (req, res, next) => {
   
   // Allow login page and auth endpoints
   if (req.path === '/login.html' || req.path.startsWith('/api/auth/') || 
-      req.path === '/favicon.svg' || req.path === '/logo.svg') {
+      req.path === '/favicon.svg' || req.path === '/logo.svg' || 
+      req.path === '/styles.css' || req.path === '/app.js') {
     return next();
   }
   
@@ -124,6 +148,7 @@ const authMiddleware = (req, res, next) => {
 // Middleware
 app.use(express.json());
 app.use(ipWhitelistMiddleware);
+app.use(sessionMiddleware);
 app.use(express.static('public', {
   setHeaders: (res, path) => {
     // Don't cache HTML files
