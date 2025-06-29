@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Socket.IO Connection Test - CYPH3R C0D3</title>
+    <style>
+        body {
+            background: #000;
+            color: #00ff41;
+            font-family: 'Fira Code', monospace;
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #39ff14;
+            text-shadow: 0 0 10px #39ff14;
+            text-align: center;
+        }
+        .test-section {
+            background: rgba(0, 255, 65, 0.1);
+            border: 1px solid #39ff14;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+            margin: 5px 0;
+            background: rgba(0, 0, 0, 0.5);
+            border-left: 3px solid #39ff14;
+        }
+        .status-value {
+            font-weight: bold;
+        }
+        .connected { color: #00ff41; }
+        .disconnected { color: #ff0040; }
+        .pending { color: #ffff00; }
+        
+        button {
+            background: #39ff14;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-weight: bold;
+            margin: 5px;
+            font-family: inherit;
+        }
+        button:hover {
+            box-shadow: 0 0 20px #39ff14;
+        }
+        
+        #log {
+            background: #000;
+            border: 1px solid #39ff14;
+            padding: 10px;
+            height: 300px;
+            overflow-y: auto;
+            font-size: 12px;
+            font-family: monospace;
+        }
+        
+        .log-entry {
+            margin: 2px 0;
+            padding: 2px;
+        }
+        .log-info { color: #00ff41; }
+        .log-error { color: #ff0040; }
+        .log-warning { color: #ffff00; }
+        .log-debug { color: #0080ff; }
+        
+        .transport-info {
+            display: inline-block;
+            padding: 5px 10px;
+            margin: 5px;
+            background: rgba(57, 255, 20, 0.2);
+            border: 1px solid #39ff14;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 SOCKET.IO CONNECTION DIAGNOSTICS</h1>
+        
+        <div class="test-section">
+            <h2>Connection Status</h2>
+            <div class="status-item">
+                <span>Socket.IO Library</span>
+                <span class="status-value" id="io-loaded">Checking...</span>
+            </div>
+            <div class="status-item">
+                <span>Connection State</span>
+                <span class="status-value" id="connection-state">Not Connected</span>
+            </div>
+            <div class="status-item">
+                <span>Socket ID</span>
+                <span class="status-value" id="socket-id">None</span>
+            </div>
+            <div class="status-item">
+                <span>Transport Type</span>
+                <span class="status-value" id="transport-type">None</span>
+            </div>
+            <div class="status-item">
+                <span>Latency (ping)</span>
+                <span class="status-value" id="latency">N/A</span>
+            </div>
+        </div>
+        
+        <div class="test-section">
+            <h2>Server Info</h2>
+            <div class="status-item">
+                <span>Server URL</span>
+                <span class="status-value" id="server-url">Checking...</span>
+            </div>
+            <div class="status-item">
+                <span>API Health</span>
+                <span class="status-value" id="api-health">Checking...</span>
+            </div>
+            <div class="status-item">
+                <span>Socket.IO Endpoint</span>
+                <span class="status-value" id="socketio-endpoint">Checking...</span>
+            </div>
+        </div>
+        
+        <div class="test-section">
+            <h2>Transport Tests</h2>
+            <div id="transport-tests">
+                <div class="transport-info">WebSocket: <span id="ws-status">Testing...</span></div>
+                <div class="transport-info">HTTP Polling: <span id="polling-status">Testing...</span></div>
+            </div>
+        </div>
+        
+        <div class="test-section">
+            <h2>Actions</h2>
+            <button onclick="testConnection()">🔄 Test Connection</button>
+            <button onclick="forceReconnect()">🔌 Force Reconnect</button>
+            <button onclick="testWebSocket()">🌐 Test WebSocket Only</button>
+            <button onclick="testPolling()">📡 Test Polling Only</button>
+            <button onclick="clearLog()">🧹 Clear Log</button>
+            <button onclick="window.location.href='/'">🏠 Back to App</button>
+        </div>
+        
+        <div class="test-section">
+            <h2>Connection Log</h2>
+            <div id="log"></div>
+        </div>
+    </div>
+    
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/libs/xterm.js"></script>
+    <script>
+        let socket;
+        let pingInterval;
+        
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const time = new Date().toTimeString().split(' ')[0];
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${time}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        function updateStatus(id, value, isSuccess = null) {
+            const element = document.getElementById(id);
+            if (element) {
+                element.textContent = value;
+                if (isSuccess !== null) {
+                    element.className = 'status-value ' + (isSuccess ? 'connected' : 'disconnected');
+                }
+            }
+        }
+        
+        async function checkServerHealth() {
+            try {
+                // Check API health
+                const healthResponse = await fetch('/api/health');
+                const health = await healthResponse.json();
+                updateStatus('api-health', '✓ OK', true);
+                updateStatus('server-url', window.location.origin, true);
+                log(`API Health: OK, Uptime: ${Math.round(health.uptime)}s`, 'info');
+                
+                // Check Socket.IO endpoint
+                const socketResponse = await fetch('/api/socket-test');
+                const socketData = await socketResponse.json();
+                updateStatus('socketio-endpoint', '✓ Available', true);
+                log(`Socket.IO endpoint available, ${socketData.connected_clients} clients connected`, 'info');
+                
+            } catch (error) {
+                updateStatus('api-health', '✗ Failed', false);
+                log(`Server health check failed: ${error.message}`, 'error');
+            }
+        }
+        
+        function testConnection() {
+            log('Starting connection test...', 'info');
+            
+            if (socket && socket.connected) {
+                socket.disconnect();
+            }
+            
+            const options = {
+                path: '/socket.io/',
+                transports: ['websocket', 'polling'],
+                reconnection: true,
+                reconnectionDelay: 500,
+                reconnectionDelayMax: 3000,
+                reconnectionAttempts: 5,
+                timeout: 10000,
+                forceNew: true
+            };
+            
+            log(`Connecting with options: ${JSON.stringify(options)}`, 'debug');
+            
+            socket = io(window.location.origin, options);
+            setupSocketHandlers();
+        }
+        
+        function setupSocketHandlers() {
+            socket.on('connect', () => {
+                log(`Connected! Socket ID: ${socket.id}`, 'info');
+                updateStatus('connection-state', 'Connected', true);
+                updateStatus('socket-id', socket.id, true);
+                updateStatus('transport-type', socket.io.engine.transport.name, true);
+                
+                // Start ping measurement
+                startPingMeasurement();
+            });
+            
+            socket.on('connection-success', (data) => {
+                log(`Server confirmed connection: Transport=${data.transport}`, 'info');
+            });
+            
+            socket.on('disconnect', (reason) => {
+                log(`Disconnected: ${reason}`, 'warning');
+                updateStatus('connection-state', 'Disconnected', false);
+                updateStatus('socket-id', 'None', false);
+                updateStatus('transport-type', 'None', false);
+                updateStatus('latency', 'N/A');
+                stopPingMeasurement();
+            });
+            
+            socket.on('connect_error', (error) => {
+                log(`Connection error: ${error.message} (${error.type})`, 'error');
+                updateStatus('connection-state', 'Error', false);
+            });
+            
+            socket.on('reconnect_attempt', (attempt) => {
+                log(`Reconnection attempt ${attempt}...`, 'warning');
+                updateStatus('connection-state', `Reconnecting (${attempt})`, false);
+            });
+            
+            socket.io.on('upgrade', (transport) => {
+                log(`Transport upgraded to: ${transport.name}`, 'info');
+                updateStatus('transport-type', transport.name, true);
+            });
+        }
+        
+        function startPingMeasurement() {
+            let lastPing = Date.now();
+            
+            pingInterval = setInterval(() => {
+                if (socket && socket.connected) {
+                    const start = Date.now();
+                    socket.emit('ping', () => {
+                        const latency = Date.now() - start;
+                        updateStatus('latency', `${latency}ms`, true);
+                    });
+                }
+            }, 2000);
+        }
+        
+        function stopPingMeasurement() {
+            if (pingInterval) {
+                clearInterval(pingInterval);
+                pingInterval = null;
+            }
+        }
+        
+        function forceReconnect() {
+            log('Forcing reconnection...', 'warning');
+            if (socket) {
+                socket.disconnect();
+                setTimeout(() => {
+                    socket.connect();
+                }, 100);
+            }
+        }
+        
+        function testWebSocket() {
+            log('Testing WebSocket-only connection...', 'info');
+            if (socket) socket.disconnect();
+            
+            socket = io(window.location.origin, {
+                transports: ['websocket'],
+                forceNew: true
+            });
+            setupSocketHandlers();
+        }
+        
+        function testPolling() {
+            log('Testing Polling-only connection...', 'info');
+            if (socket) socket.disconnect();
+            
+            socket = io(window.location.origin, {
+                transports: ['polling'],
+                forceNew: true
+            });
+            setupSocketHandlers();
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+            log('Log cleared', 'info');
+        }
+        
+        // Initialize
+        window.addEventListener('DOMContentLoaded', async () => {
+            // Check if Socket.IO is loaded
+            if (typeof io !== 'undefined') {
+                updateStatus('io-loaded', '✓ Loaded', true);
+                log('Socket.IO library loaded successfully', 'info');
+            } else {
+                updateStatus('io-loaded', '✗ Not Found', false);
+                log('Socket.IO library not found!', 'error');
+                return;
+            }
+            
+            // Check server health
+            await checkServerHealth();
+            
+            // Auto-start connection test
+            setTimeout(testConnection, 500);
+        });
+        
+        // Test transport capabilities
+        async function testTransports() {
+            // Test WebSocket support
+            try {
+                const ws = new WebSocket(`ws://${window.location.host}/test`);
+                ws.onopen = () => {
+                    document.getElementById('ws-status').textContent = '✓ Supported';
+                    document.getElementById('ws-status').style.color = '#00ff41';
+                    ws.close();
+                };
+                ws.onerror = () => {
+                    document.getElementById('ws-status').textContent = '✗ Blocked';
+                    document.getElementById('ws-status').style.color = '#ff0040';
+                };
+            } catch (e) {
+                document.getElementById('ws-status').textContent = '✗ Error';
+                document.getElementById('ws-status').style.color = '#ff0040';
+            }
+            
+            // Polling is always supported
+            document.getElementById('polling-status').textContent = '✓ Supported';
+            document.getElementById('polling-status').style.color = '#00ff41';
+        }
+        
+        testTransports();
+    </script>
+</body>
+</html> 

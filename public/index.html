@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CYPH3R C0D3 - Cyberpunk Code Editor</title>
+    <meta name="description" content="CYPH3R C0D3 - Advanced cyberpunk-themed web-based code editor with terminal access">
+    <meta name="keywords" content="code editor, cyberpunk, hacker, terminal, web IDE, cypher, quantum">
+    <meta name="author" content="CYPH3R C0D3 Team">
+    <meta name="theme-color" content="#00ff41">
+    
+    <!-- Favicons -->
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="apple-touch-icon" href="favicon.svg">
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <!-- XTerm CSS Local -->
+    <link rel="stylesheet" href="/libs/xterm.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Matrix Rain Effect -->
+    <div id="matrix-rain"></div>
+    
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <h1><i class="fas fa-code"></i> CYPH3R C0D3</h1>
+                <div class="system-info">
+                    <span class="status-indicator online">ONLINE</span>
+                    <span class="separator">|</span>
+                    <span id="digital-clock">00:00:00</span>
+                    <span class="separator">|</span>
+                    <span class="access-level">ROOT ACCESS</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="system-status">
+                    <div class="status-item">
+                        <i class="fas fa-cpu"></i>
+                        <span>CPU: <span class="value" id="cpu-usage">0%</span></span>
+                    </div>
+                    <div class="status-item">
+                        <i class="fas fa-memory"></i>
+                        <span>MEM: <span class="value" id="mem-usage">0%</span></span>
+                    </div>
+                </div>
+                <div class="action-buttons">
+                    <button id="new-file-btn" class="btn" title="New File [Ctrl+N]">
+                        <i class="fas fa-file-plus"></i>
+                        <span>NEW</span>
+                    </button>
+                    <button id="new-folder-btn" class="btn" title="New Folder">
+                        <i class="fas fa-folder-plus"></i>
+                        <span>MKDIR</span>
+                    </button>
+                    <button id="upload-btn" class="btn" title="Upload File">
+                        <i class="fas fa-upload"></i>
+                        <span>UPLOAD</span>
+                    </button>
+                    <button id="save-btn" class="btn" title="Save [Ctrl+S]">
+                        <i class="fas fa-save"></i>
+                        <span>SAVE</span>
+                    </button>
+                    <button id="toggle-terminal-btn" class="btn" title="Toggle Terminal [Ctrl+`]">
+                        <i class="fas fa-terminal"></i>
+                        <span>TERM</span>
+                    </button>
+                    <button id="logout-btn" class="btn" title="Logout" style="display: none;">
+                        <i class="fas fa-sign-out-alt"></i>
+                        <span>LOGOUT</span>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- File Explorer -->
+            <div class="file-explorer">
+                <div class="explorer-header">
+                    <h3><i class="fas fa-folder-tree"></i> File System</h3>
+                    <div class="explorer-controls">
+                        <button id="refresh-btn" class="btn-small" title="Refresh [F5]">
+                            <i class="fas fa-sync"></i>
+                        </button>
+                        <div class="connection-status">
+                            <div class="status-dot"></div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Breadcrumb Navigation -->
+                <div class="breadcrumb-nav" id="breadcrumb-nav">
+                    <div class="breadcrumb-item active">
+                        <i class="fas fa-home"></i>
+                        <span>workspace</span>
+                    </div>
+                </div>
+                
+                <div class="explorer-stats">
+                    <div class="stat-item">
+                        <span class="label">Files:</span>
+                        <span class="value" id="file-count">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="label">Dirs:</span>
+                        <span class="value" id="dir-count">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="label">Size:</span>
+                        <span class="value" id="total-size">0 B</span>
+                    </div>
+                </div>
+                <div class="file-tree" id="file-tree">
+                    <!-- File tree will be populated here -->
+                </div>
+            </div>
+
+            <!-- Editor Area -->
+            <div class="editor-area">
+                <div class="editor-info-bar">
+                    <div class="editor-status">
+                        <span class="mode">SECURE MODE</span>
+                        <span class="separator">|</span>
+                        <span id="cursor-position">Ln 1, Col 1</span>
+                        <span class="separator">|</span>
+                        <span id="file-encoding">UTF-8</span>
+                    </div>
+                                    <div class="editor-actions">
+                    <button class="action-btn" id="preview-btn" title="Preview HTML" style="display: none;">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                    <button class="action-btn" id="split-view-btn" title="Split View" style="display: none;">
+                        <i class="fas fa-columns"></i>
+                    </button>
+                    <button class="action-btn" title="Search [Ctrl+F]">
+                        <i class="fas fa-search"></i>
+                    </button>
+                    <button class="action-btn" title="Settings">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                </div>
+                </div>
+                <div class="editor-tabs" id="editor-tabs">
+                    <!-- Tabs will be populated here -->
+                </div>
+                <div class="editor-container" id="editor-container">
+                    <div id="editor" class="editor">
+                        <div class="welcome-screen">
+                            <div class="welcome-content">
+                                <div class="hacker-logo">
+                                    <i class="fas fa-skull welcome-icon"></i>
+                                                                    <div class="glitch-text">
+                                    <span>CYPH3R</span>
+                                    <span>C0D3</span>
+                                    <span>EDI70R</span>
+                                </div>
+                                </div>
+                                <h2>WELCOME TO CYPH3R C0D3</h2>
+                                <p>QUANTUM-ENCRYPTED DEVELOPMENT ENVIRONMENT</p>
+                                <div class="system-message">
+                                    <div class="typing-text">
+                                        <span id="typing-message">INITIALIZING SECURE CONNECTION...</span>
+                                        <span class="cursor-blink">|</span>
+                                    </div>
+                                </div>
+                                <div class="quick-actions">
+                                    <button class="welcome-btn" onclick="createNewFile()">
+                                        <i class="fas fa-plus-circle"></i> CREATE FILE
+                                    </button>
+                                    <button class="welcome-btn" onclick="document.getElementById('upload-input').click()">
+                                        <i class="fas fa-upload"></i> UPLOAD DATA
+                                    </button>
+                                    <button class="welcome-btn" onclick="showTerminal()">
+                                        <i class="fas fa-terminal"></i> ACCESS SHELL
+                                    </button>
+                                </div>
+                                <div class="welcome-hint" style="margin-top: 30px; font-size: 12px; color: rgba(0, 255, 65, 0.6);">
+                                    Press <kbd>ESC</kbd> or click outside to dismiss
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="preview-container" class="preview-container" style="display: none;">
+                        <div class="preview-header">
+                            <span class="preview-title"><i class="fas fa-globe"></i> HTML PREVIEW</span>
+                            <div class="preview-controls">
+                                <button class="preview-control-btn" onclick="refreshPreview()" title="Refresh Preview">
+                                    <i class="fas fa-sync"></i>
+                                </button>
+                                <button class="preview-control-btn" onclick="openInNewTab()" title="Open in New Tab">
+                                    <i class="fas fa-external-link-alt"></i>
+                                </button>
+                                <button class="preview-control-btn" onclick="closePreview()" title="Close Preview">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <iframe id="preview-iframe" class="preview-iframe" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Terminal Footer -->
+        <footer class="terminal-footer" id="terminal-footer">
+            <div class="terminal-footer-header">
+                <div class="terminal-info">
+                    <h3><i class="fas fa-terminal"></i> Multi-Terminal Console</h3>
+                    <div class="terminal-stats">
+                        <span class="active-terminals">Active: <span id="active-terminal-count">0</span></span>
+                        <span class="separator">|</span>
+                        <span class="uptime">Uptime: <span id="uptime">00:00:00</span></span>
+                    </div>
+                </div>
+                <div class="terminal-controls">
+                    <button id="new-terminal-btn" class="btn-small" title="New Terminal [Ctrl+Shift+T]">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                    <button id="clear-terminal-btn" class="btn-small" title="Clear Current Terminal">
+                        <i class="fas fa-broom"></i>
+                    </button>
+                    <button id="toggle-terminal-btn" class="btn-small" title="Toggle Terminal [Ctrl+`]">
+                        <i class="fas fa-chevron-down"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="terminal-tabs-container" id="terminal-tabs-container">
+                <!-- Terminal tabs will be populated here -->
+            </div>
+            <div class="terminal-content" id="terminal-content">
+                <!-- Terminal instances will be populated here -->
+            </div>
+        </footer>
+    </div>
+
+    <!-- Context Menu -->
+    <div id="context-menu" class="context-menu">
+        <div class="context-header">
+            <span>ACTIONS</span>
+        </div>
+        <div class="context-item" data-action="open">
+            <i class="fas fa-folder-open"></i> EXECUTE
+        </div>
+        <div class="context-item" data-action="rename">
+            <i class="fas fa-edit"></i> RENAME
+        </div>
+        <div class="context-item" data-action="copy">
+            <i class="fas fa-copy"></i> DUPLICATE
+        </div>
+        <div class="context-item" data-action="delete">
+            <i class="fas fa-trash"></i> DELETE
+        </div>
+        <div class="context-separator"></div>
+        <div class="context-item" data-action="download">
+            <i class="fas fa-download"></i> DOWNLOAD
+        </div>
+        <div class="context-item" data-action="properties">
+            <i class="fas fa-info-circle"></i> PROPERTIES
+        </div>
+    </div>
+
+    <!-- Hidden file input for uploads -->
+    <input type="file" id="upload-input" multiple style="display: none;">
+
+    <!-- Modal for new file/folder -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">CREATE NEW FILE</h3>
+                <div class="modal-subtitle">ENTER FILENAME IN THE SECURE FIELD BELOW</div>
+            </div>
+            <div class="input-container">
+                <label for="modal-input">FILENAME:</label>
+                <input type="text" id="modal-input" placeholder="ENTER_FILENAME.EXT">
+                <div class="input-glow"></div>
+            </div>
+            <div class="modal-buttons">
+                <button id="modal-confirm-btn" class="btn btn-primary">
+                    <i class="fas fa-check"></i> EXECUTE
+                </button>
+                <button id="modal-cancel-btn" class="btn">
+                    <i class="fas fa-times"></i> ABORT
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- System Notifications -->
+    <div id="notification-area" class="notification-area"></div>
+
+    <!-- Keyboard Shortcuts Help Panel -->
+    <div id="help-panel" class="help-panel">
+        <div class="help-header">
+            <h3><i class="fas fa-keyboard"></i> KEYBOARD SHORTCUTS</h3>
+            <button class="close-help" onclick="toggleHelpPanel()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="help-content">
+            <div class="shortcut-section">
+                <h4>FILE OPERATIONS</h4>
+                <div class="shortcut-item">
+                    <kbd>Ctrl</kbd> + <kbd>N</kbd>
+                    <span>Create New File</span>
+                </div>
+                <div class="shortcut-item">
+                    <kbd>Ctrl</kbd> + <kbd>S</kbd>
+                    <span>Save Current File</span>
+                </div>
+                <div class="shortcut-item">
+                    <kbd>F5</kbd>
+                    <span>Refresh File Tree</span>
+                </div>
+            </div>
+            <div class="shortcut-section">
+                <h4>SELECTION</h4>
+                <div class="shortcut-item">
+                    <kbd>Ctrl/⌘</kbd> + <kbd>Click</kbd>
+                    <span>Toggle File Selection</span>
+                </div>
+                <div class="shortcut-item">
+                    <kbd>Shift</kbd> + <kbd>Click</kbd>
+                    <span>Select Range of Files</span>
+                </div>
+                <div class="shortcut-item">
+                    <kbd>Ctrl/⌘</kbd> + <kbd>Shift</kbd> + <kbd>Click</kbd>
+                    <span>Add Range to Selection</span>
+                </div>
+                <div class="shortcut-item">
+                    <kbd>Ctrl/⌘</kbd> + <kbd>A</kbd>
+                    <span>Select All Files</span>
+                </div>
+                <div class="shortcut-item">
+                    <kbd>Escape</kbd>
+                    <span>Clear Selection</span>
+                </div>
+            </div>
+            <div class="shortcut-section">
+                <h4>TERMINAL</h4>
+                <div class="shortcut-item">
+                    <kbd>Ctrl</kbd> + <kbd>`</kbd>
+                    <span>Toggle Terminal</span>
+                </div>
+                <div class="shortcut-item">
+                    <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>T</kbd>
+                    <span>New Terminal</span>
+                </div>
+                <div class="shortcut-item">
+                    <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>C</kbd>
+                    <span>Copy Terminal Text</span>
+                </div>
+                <div class="shortcut-item">
+                    <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>V</kbd>
+                    <span>Paste to Terminal</span>
+                </div>
+            </div>
+            <div class="shortcut-section">
+                <h4>EDITOR</h4>
+                <div class="shortcut-item">
+                    <kbd>Ctrl</kbd> + <kbd>F</kbd>
+                    <span>Find in File</span>
+                </div>
+                <div class="shortcut-item">
+                    <kbd>Ctrl</kbd> + <kbd>D</kbd>
+                    <span>Duplicate Line</span>
+                </div>
+                <div class="shortcut-item">
+                    <kbd>F1</kbd>
+                    <span>Show This Help</span>
+                </div>
+            </div>
+            <div class="shortcut-section">
+                <h4>HTML PREVIEW</h4>
+                <div class="shortcut-item">
+                    <kbd>Preview</kbd>
+                    <span>Toggle HTML Preview</span>
+                </div>
+                <div class="shortcut-item">
+                    <kbd>Split View</kbd>
+                    <span>Toggle Split View Mode</span>
+                </div>
+                <div class="shortcut-item">
+                    <kbd>F5</kbd>
+                    <span>Refresh Preview (in preview mode)</span>
+                </div>
+                <div class="shortcut-item">
+                    <kbd>Open in Tab</kbd>
+                    <span>Open preview in new browser tab</span>
+                </div>
+            </div>
+            <div class="help-section">
+                <div class="help-category">OTHER</div>
+                <div class="shortcut-item">
+                    <span class="shortcut-keys">F1</span>
+                    <span class="shortcut-desc">Toggle This Help</span>
+                </div>
+                <div class="shortcut-item">
+                    <span class="shortcut-keys">ESC</span>
+                    <span class="shortcut-desc">Close Modals/Panels</span>
+                </div>
+            </div>
+            
+            <div class="help-section">
+                <div class="help-category">TERMINAL PERFORMANCE</div>
+                <div class="performance-tips">
+                    <div class="tip-item">
+                        <i class="fas fa-bolt"></i>
+                        <span>WebSocket compression enabled for faster data transfer</span>
+                    </div>
+                    <div class="tip-item">
+                        <i class="fas fa-memory"></i>
+                        <span>Optimized buffer management with 5K line scrollback</span>
+                    </div>
+                    <div class="tip-item">
+                        <i class="fas fa-tachometer-alt"></i>
+                        <span>Real-time throughput monitoring in status bar</span>
+                    </div>
+                    <div class="tip-item">
+                        <i class="fas fa-info-circle"></i>
+                        <span>Note: Web terminals have inherent latency due to browser security</span>
+                    </div>
+                    <div class="tip-item">
+                        <i class="fas fa-server"></i>
+                        <span>Best performance when running on localhost/LAN</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- File Operation Status Panel -->
+    <div id="operation-status" class="operation-status">
+        <div class="status-content">
+            <div class="status-icon">
+                <i class="fas fa-spinner fa-spin"></i>
+            </div>
+            <div class="status-text">
+                <div class="operation-title">Processing...</div>
+                <div class="operation-detail">Please wait</div>
+            </div>
+            <div class="status-progress">
+                <div class="progress-bar">
+                    <div class="progress-fill"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions Floating Panel -->
+    <div id="quick-actions" class="quick-actions-panel">
+        <button class="quick-action-btn" onclick="toggleHelpPanel()" title="Help [F1]">
+            <i class="fas fa-question-circle"></i>
+        </button>
+        <button class="quick-action-btn" onclick="createNewFile()" title="New File [Ctrl+N]">
+            <i class="fas fa-plus"></i>
+        </button>
+        <button class="quick-action-btn" onclick="document.getElementById('upload-input').click()" title="Upload Files">
+            <i class="fas fa-upload"></i>
+        </button>
+        <button class="quick-action-btn" onclick="toggleTerminal()" title="Terminal [Ctrl+`]">
+            <i class="fas fa-terminal"></i>
+        </button>
+        <button class="quick-action-btn" onclick="refreshFileTree()" title="Refresh [F5]">
+            <i class="fas fa-sync"></i>
+        </button>
+    </div>
+
+    <!-- Selection Counter -->
+    <div id="selection-counter" class="selection-counter">
+        <i class="fas fa-check-square"></i>
+        <span id="selection-count">0</span> items selected
+        <div style="font-size: 8px; margin-top: 2px; opacity: 0.7;" id="debug-selection-info">DEBUG: 0 files</div>
+    </div>
+
+    <!-- ZIP Preview Modal -->
+    <div id="zip-preview" class="zip-preview">
+        <div class="zip-preview-modal">
+            <div class="zip-preview-header">
+                <h3><i class="fas fa-file-archive"></i> CREATE ZIP ARCHIVE</h3>
+                <button class="close-help" onclick="hideZipPreview()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="zip-preview-content">
+                <input type="text" id="zip-name-input" class="zip-input" placeholder="archive.zip" value="archive.zip">
+                <div class="zip-file-list" id="zip-file-list">
+                    <!-- Files will be listed here -->
+                </div>
+            </div>
+            <div class="zip-actions">
+                <button class="btn" onclick="hideZipPreview()">
+                    <i class="fas fa-times"></i> CANCEL
+                </button>
+                <button class="btn btn-primary" onclick="confirmCreateZip()">
+                    <i class="fas fa-file-archive"></i> CREATE ZIP
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">
+                <span>ACCESSING MAINFRAME</span>
+                <div class="loading-dots">
+                    <span>.</span><span>.</span><span>.</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/socket.io/socket.io.js"></script>
+    
+    <!-- XTerm.js Local -->
+    <script src="/libs/xterm.js"></script>
+    <script>
+        // Simple xterm.js verification
+        window.addEventListener('DOMContentLoaded', function() {
+            if (typeof Terminal !== 'undefined') {
+                console.log('[XTERM] Terminal loaded successfully from local file');
+                window.xtermLoaded = true;
+                window.dispatchEvent(new Event('xterm-loaded'));
+            } else {
+                console.error('[XTERM] Terminal failed to load from local file');
+                // Try to define Terminal from window object if available
+                if (window.Terminal) {
+                    window.Terminal = window.Terminal;
+                    window.xtermLoaded = true;
+                    window.dispatchEvent(new Event('xterm-loaded'));
+                }
+            }
+        });
+    </script>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.1/min/vs/loader.min.js"></script>
+    <script src="app.js"></script>
+    
+    <!-- Hacker Effects Script -->
+    <script>
+        // Digital Clock
+        function updateClock() {
+            const now = new Date();
+            const timeString = now.toTimeString().split(' ')[0];
+            document.getElementById('digital-clock').textContent = timeString;
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // System Status Simulation
+        function updateSystemStatus() {
+            const cpuUsage = Math.floor(Math.random() * 30) + 20;
+            const memUsage = Math.floor(Math.random() * 40) + 30;
+            
+            document.getElementById('cpu-usage').textContent = cpuUsage + '%';
+            document.getElementById('mem-usage').textContent = memUsage + '%';
+        }
+        setInterval(updateSystemStatus, 3000);
+        updateSystemStatus();
+
+        // Uptime Counter
+        let startTime = Date.now();
+        function updateUptime() {
+            const uptime = Date.now() - startTime;
+            const hours = Math.floor(uptime / 3600000);
+            const minutes = Math.floor((uptime % 3600000) / 60000);
+            const seconds = Math.floor((uptime % 60000) / 1000);
+            
+            const uptimeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            document.getElementById('uptime').textContent = uptimeString;
+        }
+        setInterval(updateUptime, 1000);
+
+        // Typing Animation
+        const messages = [
+            'INITIALIZING CYPH3R PROTOCOL...',
+            'LOADING QUANTUM ENCRYPTION...',
+            'ESTABLISHING NEURAL INTERFACE...',
+            'ACCESSING SECURE FILESYSTEM...',
+            'CYPH3R C0D3 READY FOR DEPLOYMENT...'
+        ];
+        
+        let messageIndex = 0;
+        let charIndex = 0;
+        let typingTimeout;
+        
+        function typeMessage() {
+            const currentMessage = messages[messageIndex];
+            const typingElement = document.getElementById('typing-message');
+            
+            if (!typingElement) return; // Safety check
+            
+            if (charIndex < currentMessage.length) {
+                typingElement.textContent = currentMessage.substring(0, charIndex + 1);
+                charIndex++;
+                typingTimeout = setTimeout(typeMessage, 50);
+            } else {
+                typingTimeout = setTimeout(() => {
+                    messageIndex = (messageIndex + 1) % messages.length;
+                    charIndex = 0;
+                    typeMessage();
+                }, 2000);
+            }
+        }
+        
+        // Start typing animation after page load
+        setTimeout(typeMessage, 1000);
+        
+        // Make typing animation available globally
+        window.startTypingAnimation = function() {
+            clearTimeout(typingTimeout);
+            messageIndex = 0;
+            charIndex = 0;
+            typeMessage();
+        };
+
+        // Matrix Rain Effect
+        function createMatrixRain() {
+            const matrixContainer = document.getElementById('matrix-rain');
+            const characters = '01アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン';
+            
+            function createDrop() {
+                const drop = document.createElement('div');
+                drop.className = 'matrix-drop';
+                drop.style.left = Math.random() * 100 + '%';
+                drop.style.animationDuration = (Math.random() * 3 + 2) + 's';
+                drop.textContent = characters[Math.floor(Math.random() * characters.length)];
+                
+                matrixContainer.appendChild(drop);
+                
+                setTimeout(() => {
+                    if (drop.parentNode) {
+                        drop.parentNode.removeChild(drop);
+                    }
+                }, 5000);
+            }
+            
+            setInterval(createDrop, 200);
+        }
+        
+        // Initialize matrix rain
+        createMatrixRain();
+
+        // Random Session ID
+        function generateSessionId() {
+            const chars = '0123456789ABCDEF';
+            let result = '0x';
+            for (let i = 0; i < 4; i++) {
+                result += chars[Math.floor(Math.random() * chars.length)];
+            }
+            return result;
+        }
+        document.getElementById('session-id').textContent = generateSessionId();
+
+        // Connection Status Animation
+        function animateConnectionStatus() {
+            const statusDot = document.querySelector('.status-dot');
+            statusDot.style.animation = 'pulse-dot 2s ease-in-out infinite';
+        }
+        animateConnectionStatus();
+    </script>
+</body>
+</html> 

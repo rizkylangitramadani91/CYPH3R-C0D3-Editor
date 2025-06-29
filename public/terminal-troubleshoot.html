@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terminal Troubleshooting - CYPH3R C0D3</title>
+    <style>
+        body {
+            background: #000;
+            color: #00ff41;
+            font-family: 'Fira Code', monospace;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #39ff14;
+            text-shadow: 0 0 10px #39ff14;
+        }
+        .section {
+            background: rgba(0, 255, 65, 0.1);
+            border: 1px solid #39ff14;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        .test-item {
+            margin: 10px 0;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.5);
+            border-left: 3px solid #39ff14;
+        }
+        .status {
+            float: right;
+            font-weight: bold;
+        }
+        .pass { color: #00ff41; }
+        .fail { color: #ff0040; }
+        .info { color: #ffff00; }
+        code {
+            background: rgba(57, 255, 20, 0.2);
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+        button {
+            background: #39ff14;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-weight: bold;
+            margin: 5px;
+        }
+        button:hover {
+            box-shadow: 0 0 20px #39ff14;
+        }
+        #console {
+            background: #000;
+            border: 1px solid #39ff14;
+            padding: 10px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 TERMINAL TROUBLESHOOTING</h1>
+        
+        <div class="section">
+            <h2>Quick Checks</h2>
+            
+            <div class="test-item">
+                <span>Server Connection</span>
+                <span class="status" id="server-status">Checking...</span>
+            </div>
+            
+            <div class="test-item">
+                <span>Socket.IO Connection</span>
+                <span class="status" id="socket-status">Checking...</span>
+            </div>
+            
+            <div class="test-item">
+                <span>Terminal Library (xterm.js)</span>
+                <span class="status" id="xterm-status">Checking...</span>
+            </div>
+            
+            <div class="test-item">
+                <span>Browser Console Errors</span>
+                <span class="status" id="console-errors">Checking...</span>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>Terminal Debug Actions</h2>
+            <button onclick="checkConnections()">🔍 Check All Connections</button>
+            <button onclick="createTestTerminal()">🖥️ Create Test Terminal</button>
+            <button onclick="clearConsole()">🧹 Clear Console</button>
+            <button onclick="window.open('/', '_blank')">🚀 Open Main App</button>
+        </div>
+        
+        <div class="section">
+            <h2>Debug Console</h2>
+            <div id="console"></div>
+        </div>
+        
+        <div class="section">
+            <h2>Common Issues & Solutions</h2>
+            <div class="test-item">
+                <strong>Can't type in terminal:</strong>
+                <ul>
+                    <li>Click on the terminal to focus it</li>
+                    <li>Check if Socket.IO is connected</li>
+                    <li>Look for JavaScript errors in browser console (F12)</li>
+                    <li>Try refreshing the page</li>
+                </ul>
+            </div>
+            
+            <div class="test-item">
+                <strong>Terminal not showing:</strong>
+                <ul>
+                    <li>Click the terminal button in the top bar</li>
+                    <li>Check if the terminal footer is minimized</li>
+                    <li>Make sure xterm.js loaded successfully</li>
+                </ul>
+            </div>
+            
+            <div class="test-item">
+                <strong>Performance issues:</strong>
+                <ul>
+                    <li>Reduce scrollback buffer (currently 5000 lines)</li>
+                    <li>Close unused terminals</li>
+                    <li>Use Chrome/Edge for best performance</li>
+                    <li>Check throughput in terminal status bar</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const consoleDiv = document.getElementById('console');
+        
+        function log(message, type = 'info') {
+            const time = new Date().toTimeString().split(' ')[0];
+            const color = type === 'error' ? '#ff0040' : type === 'success' ? '#00ff41' : '#ffff00';
+            consoleDiv.innerHTML += `<div style="color: ${color}">[${time}] ${message}</div>`;
+            consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        }
+        
+        function clearConsole() {
+            consoleDiv.innerHTML = '';
+            log('Console cleared', 'info');
+        }
+        
+        async function checkConnections() {
+            log('Starting connection checks...', 'info');
+            
+            // Check server
+            try {
+                const response = await fetch('/api/health');
+                const data = await response.json();
+                document.getElementById('server-status').innerHTML = '<span class="pass">✓ Connected</span>';
+                log(`Server OK - Version: ${data.version}, Uptime: ${Math.round(data.uptime)}s`, 'success');
+            } catch (error) {
+                document.getElementById('server-status').innerHTML = '<span class="fail">✗ Failed</span>';
+                log(`Server check failed: ${error.message}`, 'error');
+            }
+            
+            // Check Socket.IO
+            const socket = io();
+            socket.on('connect', () => {
+                document.getElementById('socket-status').innerHTML = '<span class="pass">✓ Connected</span>';
+                log(`Socket.IO connected - ID: ${socket.id}`, 'success');
+            });
+            
+            socket.on('connect_error', (error) => {
+                document.getElementById('socket-status').innerHTML = '<span class="fail">✗ Failed</span>';
+                log(`Socket.IO error: ${error.message}`, 'error');
+            });
+            
+            // Check xterm.js
+            if (typeof Terminal !== 'undefined') {
+                document.getElementById('xterm-status').innerHTML = '<span class="pass">✓ Loaded</span>';
+                log('xterm.js loaded successfully from local file', 'success');
+            } else if (window.Terminal) {
+                window.Terminal = window.Terminal;
+                document.getElementById('xterm-status').innerHTML = '<span class="pass">✓ Loaded</span>';
+                log('xterm.js loaded successfully (from window.Terminal)', 'success');
+            } else {
+                document.getElementById('xterm-status').innerHTML = '<span class="fail">✗ Not Found</span>';
+                log('xterm.js not loaded - terminal won\'t work!', 'error');
+                
+                // Try loading it
+                const script = document.createElement('script');
+                script.src = '/libs/xterm.js';
+                script.onload = () => {
+                    if (typeof Terminal !== 'undefined') {
+                        document.getElementById('xterm-status').innerHTML = '<span class="pass">✓ Loaded (retry)</span>';
+                        log('xterm.js loaded successfully after retry', 'success');
+                    }
+                };
+                document.head.appendChild(script);
+            }
+            
+            // Check for console errors
+            const errorCount = window.consoleErrors ? window.consoleErrors.length : 0;
+            if (errorCount === 0) {
+                document.getElementById('console-errors').innerHTML = '<span class="pass">✓ None</span>';
+                log('No console errors detected', 'success');
+            } else {
+                document.getElementById('console-errors').innerHTML = `<span class="fail">✗ ${errorCount} errors</span>`;
+                log(`Found ${errorCount} console errors - check browser console (F12)`, 'error');
+            }
+        }
+        
+        function createTestTerminal() {
+            log('Opening main app to test terminal...', 'info');
+            window.open('/', '_blank');
+            log('Main app opened in new tab. Try typing in the terminal there.', 'info');
+        }
+        
+        // Capture console errors
+        window.consoleErrors = [];
+        window.addEventListener('error', (event) => {
+            window.consoleErrors.push(event);
+            log(`JS Error: ${event.message}`, 'error');
+        });
+        
+        // Auto-check on load
+        window.addEventListener('DOMContentLoaded', () => {
+            setTimeout(checkConnections, 500);
+        });
+        
+        log('Terminal troubleshooting tool loaded', 'info');
+        log('Click "Check All Connections" to run diagnostics', 'info');
+    </script>
+</body>
+</html> 

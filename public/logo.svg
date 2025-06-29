@@ -1,0 +1,76 @@
+<svg width="200" height="80" viewBox="0 0 200 80" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00ff41;stop-opacity:1" />
+      <stop offset="25%" style="stop-color:#39ff14;stop-opacity:1" />
+      <stop offset="75%" style="stop-color:#00ff41;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#39ff14;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ff0040;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#ff4040;stop-opacity:1" />
+    </linearGradient>
+    <filter id="logoGlow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge> 
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="textGlow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge> 
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="200" height="80" fill="#000000" rx="8" opacity="0.9"/>
+  
+  <!-- Border -->
+  <rect x="2" y="2" width="196" height="76" fill="none" stroke="url(#logoGrad)" stroke-width="1" rx="6" filter="url(#logoGlow)"/>
+  
+  <!-- Left Code Symbol -->
+  <g transform="translate(15, 40)">
+    <path d="M0 -15 L-8 0 L0 15" stroke="url(#logoGrad)" stroke-width="3" fill="none" stroke-linecap="round" filter="url(#logoGlow)"/>
+    <circle cx="12" cy="0" r="2" fill="url(#accentGrad)" filter="url(#logoGlow)"/>
+  </g>
+  
+  <!-- Right Code Symbol -->
+  <g transform="translate(185, 40)">
+    <path d="M0 -15 L8 0 L0 15" stroke="url(#logoGrad)" stroke-width="3" fill="none" stroke-linecap="round" filter="url(#logoGlow)"/>
+    <circle cx="-12" cy="0" r="2" fill="url(#accentGrad)" filter="url(#logoGlow)"/>
+  </g>
+  
+  <!-- Central Text -->
+  <g transform="translate(100, 30)">
+    <!-- CYPH3R -->
+    <text x="0" y="0" text-anchor="middle" font-family="Orbitron, monospace" font-size="18" font-weight="900" 
+          fill="url(#logoGrad)" filter="url(#textGlow)">CYPH3R</text>
+    
+    <!-- C0D3 -->
+    <text x="0" y="25" text-anchor="middle" font-family="Orbitron, monospace" font-size="16" font-weight="700" 
+          fill="url(#logoGrad)" filter="url(#textGlow)">C0D3</text>
+  </g>
+  
+  <!-- Matrix Style Decorations -->
+  <g opacity="0.6">
+    <circle cx="40" cy="15" r="1" fill="#39ff14"/>
+    <circle cx="160" cy="15" r="1" fill="#39ff14"/>
+    <circle cx="40" cy="65" r="1" fill="#39ff14"/>
+    <circle cx="160" cy="65" r="1" fill="#39ff14"/>
+    
+    <!-- Binary patterns -->
+    <text x="35" y="12" font-family="monospace" font-size="6" fill="#39ff14" opacity="0.5">01</text>
+    <text x="155" y="12" font-family="monospace" font-size="6" fill="#39ff14" opacity="0.5">10</text>
+    <text x="35" y="72" font-family="monospace" font-size="6" fill="#39ff14" opacity="0.5">11</text>
+    <text x="155" y="72" font-family="monospace" font-size="6" fill="#39ff14" opacity="0.5">00</text>
+  </g>
+  
+  <!-- Subtle scan line -->
+  <rect x="0" y="40" width="200" height="1" fill="url(#logoGrad)" opacity="0.3">
+    <animate attributeName="opacity" values="0.3;0.7;0.3" dur="3s" repeatCount="indefinite"/>
+  </rect>
+</svg> 

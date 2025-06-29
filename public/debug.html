@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Multi-Selection & ZIP Test</title>
+    <style>
+        body { font-family: monospace; background: #000; color: #00ff41; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #00ff41; }
+        .test-button { background: #001100; color: #00ff41; border: 1px solid #00ff41; padding: 8px 16px; margin: 5px; cursor: pointer; }
+        .test-button:hover { background: #00ff41; color: #000; }
+        .test-result { margin: 10px 0; padding: 10px; background: #001100; }
+        .error { color: #ff0040; }
+        .success { color: #39ff14; }
+        #log { height: 200px; overflow-y: auto; background: #000; border: 1px solid #00ff41; padding: 10px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>🔧 CYPH3R C0D3 - Multi-Selection & ZIP Debug</h1>
+    
+    <div class="test-section">
+        <h3>Multi-Selection Test</h3>
+        <p>Instructions: Open CYPH3R C0D3 in another tab, then:</p>
+        <ol>
+            <li>Try Ctrl+clicking multiple files</li>
+            <li>Check browser console for debug logs</li>
+            <li>Look for "[DEBUG]" messages</li>
+        </ol>
+    </div>
+    
+    <div class="test-section">
+        <h3>ZIP Functionality Test</h3>
+        <button class="test-button" onclick="testZipAPI()">Test ZIP API</button>
+        <button class="test-button" onclick="testUnzipAPI()">Test UNZIP API</button>
+        <div id="zip-results" class="test-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Debug Console</h3>
+        <button class="test-button" onclick="clearLog()">Clear Log</button>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : '';
+            logDiv.innerHTML += `<div class="${className}">[${timestamp}] ${message}</div>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        async function testZipAPI() {
+            log('Testing ZIP API...');
+            try {
+                // First get actual files from workspace
+                const filesResponse = await fetch('/api/files?path=workspace');
+                const files = await filesResponse.json();
+                
+                // Use first 2 files as test files, convert to relative paths
+                const testFiles = files.slice(0, 2).map(f => f.name); // Use just filename
+                log('Using test files: ' + testFiles.join(', '));
+                
+                const response = await fetch('/api/file/zip', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        files: testFiles,
+                        zipName: 'test_archive.zip'
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    log('✅ ZIP API Test SUCCESS: ' + JSON.stringify(result), 'success');
+                    document.getElementById('zip-results').innerHTML = `
+                        <div class="success">ZIP Test Result:</div>
+                        <pre>${JSON.stringify(result, null, 2)}</pre>
+                    `;
+                } else {
+                    log('❌ ZIP API Test FAILED: ' + result.error, 'error');
+                    document.getElementById('zip-results').innerHTML = `
+                        <div class="error">ZIP Test Failed:</div>
+                        <pre>${JSON.stringify(result, null, 2)}</pre>
+                    `;
+                }
+            } catch (error) {
+                log('❌ ZIP API Test ERROR: ' + error.message, 'error');
+                document.getElementById('zip-results').innerHTML = `
+                    <div class="error">ZIP Test Error: ${error.message}</div>
+                `;
+            }
+        }
+
+        async function testUnzipAPI() {
+            log('Testing UNZIP API...');
+            try {
+                const response = await fetch('/api/file/unzip', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        zipPath: 'workspace/test_archive.zip',
+                        extractTo: 'workspace/extracted'
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    log('✅ UNZIP API Test SUCCESS: ' + JSON.stringify(result), 'success');
+                } else {
+                    log('❌ UNZIP API Test FAILED: ' + result.error, 'error');
+                }
+            } catch (error) {
+                log('❌ UNZIP API Test ERROR: ' + error.message, 'error');
+            }
+        }
+
+        // Console logging capture
+        const originalLog = console.log;
+        const originalError = console.error;
+        
+        console.log = function(...args) {
+            log('CONSOLE: ' + args.join(' '));
+            originalLog.apply(console, args);
+        };
+        
+        console.error = function(...args) {
+            log('ERROR: ' + args.join(' '), 'error');
+            originalError.apply(console, args);
+        };
+
+        log('🚀 Debug page loaded. Server should be running on localhost:3000');
+        log('📝 Check multi-selection by Ctrl+clicking files in main app');
+        log('🗜️ Test ZIP functionality with the buttons above');
+        
+        // Check server health first
+        fetch('/api/health')
+            .then(response => response.json())
+            .then(data => {
+                log('✅ Server Health Check: ' + JSON.stringify(data), 'success');
+                log('📂 Workspace: ' + data.workspace);
+                log('⏱️ Uptime: ' + data.uptime.toFixed(2) + 's');
+            })
+            .catch(error => {
+                log('❌ Server Health Check failed: ' + error.message, 'error');
+            });
+        
+        // Check if file API is working
+        fetch('/api/files?path=workspace')
+            .then(response => {
+                if (response.ok) {
+                    return response.json();
+                } else {
+                    throw new Error('Response status: ' + response.status);
+                }
+            })
+            .then(data => {
+                log('✅ File API working - Found ' + data.length + ' files in workspace', 'success');
+                log('📁 Files: ' + data.map(f => f.name).join(', '));
+            })
+            .catch(error => {
+                log('❌ File API failed: ' + error.message, 'error');
+            });
+    </script>
+</body>
+</html> 

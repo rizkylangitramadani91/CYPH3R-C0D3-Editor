@@ -1,0 +1,50 @@
+====================================
+ CYPH3R C0D3 - SECURITY QUICK START
+====================================
+
+Your web code editor now has authentication enabled!
+
+🔐 DEFAULT LOGIN CREDENTIALS:
+   Username: admin
+   Password: changeme123
+
+⚠️  IMPORTANT: Change these immediately for production!
+
+📝 HOW TO CHANGE CREDENTIALS:
+
+1. Edit the .env file:
+   nano .env
+   
+2. Change these values:
+   ADMIN_USERNAME=your_username
+   ADMIN_PASSWORD=your_secure_password
+   SESSION_SECRET=generate-random-string-here
+
+3. Restart the server:
+   npm start
+
+🛡️ SECURITY FEATURES:
+   ✓ Password hashing with bcrypt
+   ✓ Session-based authentication
+   ✓ Rate limiting (10 attempts/15 min)
+   ✓ IP ban after 5 failed attempts
+   ✓ Optional IP whitelisting
+   ✓ Security headers (Helmet.js)
+
+📌 ACCESS THE APP:
+   1. Go to http://localhost:3000
+   2. You'll be redirected to login page
+   3. Enter credentials
+   4. Click "ACCESS SYSTEM"
+
+🔧 OPTIONAL SETTINGS IN .env:
+   - IP_WHITELIST=192.168.1.100,10.0.0.1
+   - MAX_LOGIN_ATTEMPTS=5
+   - BAN_DURATION=15
+   - AUTH_ENABLED=false (to disable auth)
+
+📖 For detailed information, see SECURITY.md
+
+====================================
+Stay secure! 🔒
+==================================== 
