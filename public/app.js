@@ -9,6 +9,8 @@ let openTabs = [];
 let activeTabIndex = -1;
 let fileTree = [];
 let contextMenuTarget = null;
+let detachedTerminals = []; // Track detached terminals
+let persistentTerminals = []; // Track all persistent terminals
 
 // Utility functions
 function generateSessionId() {
@@ -282,6 +284,108 @@ function initializeSocket() {
             terminal.terminal.writeln('\x1b[31m║\x1b[0m                  \x1b[33mRefresh to reconnect\x1b[0m                     \x1b[31m║\x1b[0m');
             terminal.terminal.writeln('\x1b[31m╚═══════════════════════════════════════════════════════════════╝\x1b[0m');
             showNotification(`TERMINAL SESSION ${data.terminalId} ENDED`, 'warning');
+        }
+    });
+    
+    socket.on('terminal:detached', (data) => {
+        console.log('[TERMINAL] Terminal detached:', data);
+        showNotification(`TERMINAL ${data.name} DETACHED - RUNNING IN BACKGROUND`, 'info');
+        updateDetachedTerminalsList();
+    });
+    
+    socket.on('terminal:detached-list', (data) => {
+        console.log('[TERMINAL] Detached terminals list:', data);
+        detachedTerminals = data;
+        updateDetachedTerminalsList();
+    });
+    
+    socket.on('terminal:reconnected', (data) => {
+        console.log('[TERMINAL] Reconnected to terminal:', data);
+        if (terminals[data.clientTerminalId]) {
+            terminals[data.clientTerminalId].socketId = data.terminalId;
+            terminals[data.clientTerminalId].name = data.name;
+            
+            const terminal = terminals[data.clientTerminalId].terminal;
+            if (terminal) {
+                terminal.writeln('\x1b[32m[SYSTEM] Reconnected to detached session\x1b[0m');
+                terminal.writeln('\x1b[36m[INFO] Session ID: ' + data.terminalId + '\x1b[0m');
+                terminal.writeln('');
+                terminal.focus();
+            }
+            
+            showNotification(`RECONNECTED TO ${data.name}`, 'success');
+            updateDetachedTerminalsList();
+        }
+    });
+    
+    socket.on('terminal:error', (data) => {
+        console.error('[TERMINAL] Error:', data);
+        showNotification(`TERMINAL ERROR: ${data.message}`, 'error');
+    });
+    
+    socket.on('terminal:kept-alive', (data) => {
+        console.log('[TERMINAL] Terminal kept alive:', data);
+        showNotification(`TERMINAL ${data.name} KEPT ALIVE IN BACKGROUND`, 'info');
+    });
+    
+    socket.on('terminal:persistent-list', (data) => {
+        console.log('[TERMINAL] Persistent terminals list:', data);
+        persistentTerminals = data.persistent || [];
+        detachedTerminals = data.detached || [];
+        
+        // Auto-reconnect to persistent terminals on startup
+        if (persistentTerminals.length > 0 && Object.keys(terminals).length === 0) {
+            console.log('[TERMINAL] Auto-reconnecting to persistent terminals...');
+            
+            // Auto-reconnect to all running terminals
+            persistentTerminals.forEach((persistent, index) => {
+                if (persistent.running) {
+                    setTimeout(() => {
+                        autoReconnectToPersistentTerminal(persistent.terminalId, persistent.name);
+                    }, 500 * (index + 1)); // Stagger reconnections
+                }
+            });
+        } else {
+            updateDetachedTerminalsList();
+        }
+    });
+    
+    socket.on('terminal:auto-reconnected', (data) => {
+        console.log('[TERMINAL] Auto-reconnected to terminal:', data);
+        if (terminals[data.clientTerminalId]) {
+            terminals[data.clientTerminalId].socketId = data.terminalId;
+            terminals[data.clientTerminalId].name = data.name;
+            
+            const terminal = terminals[data.clientTerminalId].terminal;
+            if (terminal && data.history) {
+                // Clear and replay history
+                terminal.clear();
+                
+                // Write history back to terminal
+                data.history.forEach(chunk => {
+                    if (chunk && chunk.data) {
+                        terminal.write(new Uint8Array(chunk.data));
+                    } else if (chunk) {
+                        terminal.write(chunk);
+                    }
+                });
+                
+                terminal.writeln('\x1b[32m[SYSTEM] Reconnected to persistent session\x1b[0m');
+                terminal.writeln('');
+                
+                // Refresh prompt
+                if (socket && socket.connected && terminals[data.clientTerminalId].socketId) {
+                    socket.emit('terminal:data', { 
+                        data: '\n', 
+                        terminalId: terminals[data.clientTerminalId].socketId 
+                    });
+                }
+                
+                terminal.focus();
+            }
+            
+            showNotification(`AUTO-RECONNECTED TO ${data.name}`, 'success');
+            updateDetachedTerminalsList();
         }
     });
     
@@ -742,7 +846,8 @@ function createTerminalSession(terminalId) {
         socket.emit('terminal:create', {
             cols: cols,
             rows: rows,
-            terminalId: terminalId
+            terminalId: terminalId,
+            name: terminals[terminalId].name
         });
     } else {
         console.warn('[TERMINAL] Socket not connected, waiting for connection...');
@@ -781,54 +886,90 @@ function setActiveTerminal(terminalId) {
     renderTerminalTabs();
 }
 
-function closeTerminal(terminalId) {
-    if (Object.keys(terminals).length <= 1) {
-        showNotification('CANNOT CLOSE LAST TERMINAL', 'warning');
-        return;
-    }
-    
+function closeTerminal(terminalId, detach = false) {
     const terminal = terminals[terminalId];
     if (terminal) {
-        console.log(`[TERMINAL] Closing terminal ${terminalId}`);
+        console.log(`[TERMINAL] ${detach ? 'Detaching' : 'Closing'} terminal ${terminalId}`);
         
-        // Stop resize observer
-        if (terminal.resizeObserver) {
-            terminal.resizeObserver.disconnect();
-        }
+        // Always keep terminal alive unless explicitly closing
+        const keepAlive = detach || !confirm(`Really close ${terminal.name}? This will terminate the process.\n\nClick Cancel to keep it running in background.`);
         
-        // Destroy terminal
-        try {
-            terminal.terminal.dispose();
-        } catch (e) {
-            console.warn('[TERMINAL] Error disposing terminal:', e);
-        }
-        
-        // Remove from DOM
-        const instance = document.getElementById(terminalId);
-        if (instance) {
-            instance.remove();
-        }
-        
-        // Emit close to server
-        if (socket && socket.connected && terminal.socketId) {
-            socket.emit('terminal:close', { terminalId: terminal.socketId });
-        }
-        
-        // Remove from terminals object
-        delete terminals[terminalId];
-        
-        // Set new active terminal if needed
-        if (activeTerminalId === terminalId) {
-            const remainingTerminals = Object.keys(terminals);
-            if (remainingTerminals.length > 0) {
-                setActiveTerminal(remainingTerminals[0]);
+        if (keepAlive) {
+            // Just detach/keep alive
+            if (socket && socket.connected && terminal.socketId) {
+                socket.emit('terminal:close', { 
+                    terminalId: terminal.socketId,
+                    keepAlive: true 
+                });
             }
+            
+            // Hide terminal UI
+            const instance = document.getElementById(terminalId);
+            if (instance) {
+                instance.style.display = 'none';
+            }
+            
+            // Remove from active terminals
+            delete terminals[terminalId];
+            
+            // Set new active terminal if needed
+            if (activeTerminalId === terminalId) {
+                const remainingTerminals = Object.keys(terminals);
+                if (remainingTerminals.length > 0) {
+                    setActiveTerminal(remainingTerminals[0]);
+                } else {
+                    // Create new terminal if none left
+                    createNewTerminal();
+                }
+            }
+            
+            renderTerminalTabs();
+            updateTerminalCount();
+            
+        } else {
+            // Complete close - existing code
+            // Stop resize observer
+            if (terminal.resizeObserver) {
+                terminal.resizeObserver.disconnect();
+            }
+            
+            // Destroy terminal
+            try {
+                terminal.terminal.dispose();
+            } catch (e) {
+                console.warn('[TERMINAL] Error disposing terminal:', e);
+            }
+            
+            // Remove from DOM
+            const instance = document.getElementById(terminalId);
+            if (instance) {
+                instance.remove();
+            }
+            
+            // Emit close to server
+            if (socket && socket.connected && terminal.socketId) {
+                socket.emit('terminal:close', { 
+                    terminalId: terminal.socketId,
+                    keepAlive: false 
+                });
+            }
+            
+            // Remove from terminals object
+            delete terminals[terminalId];
+            
+            // Set new active terminal if needed
+            if (activeTerminalId === terminalId) {
+                const remainingTerminals = Object.keys(terminals);
+                if (remainingTerminals.length > 0) {
+                    setActiveTerminal(remainingTerminals[0]);
+                }
+            }
+            
+            renderTerminalTabs();
+            updateTerminalCount();
+            
+            showNotification(`TERMINAL ${terminal.name.toUpperCase()} TERMINATED`, 'error');
         }
-        
-        renderTerminalTabs();
-        updateTerminalCount();
-        
-        showNotification(`TERMINAL ${terminal.name.toUpperCase()} CLOSED`, 'warning');
     }
 }
 
@@ -836,6 +977,7 @@ function renderTerminalTabs() {
     const tabsContainer = document.getElementById('terminal-tabs-container');
     tabsContainer.innerHTML = '';
     
+    // Render active terminals
     Object.keys(terminals).forEach(terminalId => {
         const terminal = terminals[terminalId];
         const tabElement = document.createElement('div');
@@ -847,13 +989,25 @@ function renderTerminalTabs() {
         tabElement.innerHTML = `
             <i class="fas fa-terminal"></i>
             <span class="terminal-name">${terminal.name}</span>
-            <button class="tab-close">×</button>
+            <button class="tab-detach" title="Detach Terminal">
+                <i class="fas fa-external-link-alt"></i>
+            </button>
+            <button class="tab-close" title="Close Terminal">×</button>
         `;
         
         // Tab click to switch
         tabElement.addEventListener('click', (e) => {
-            if (!e.target.classList.contains('tab-close')) {
+            if (!e.target.closest('.tab-close') && !e.target.closest('.tab-detach')) {
                 setActiveTerminal(terminalId);
+            }
+        });
+        
+        // Detach button click
+        const detachBtn = tabElement.querySelector('.tab-detach');
+        detachBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (confirm(`Detach ${terminal.name}? It will continue running in the background.`)) {
+                closeTerminal(terminalId, true);
             }
         });
         
@@ -861,11 +1015,252 @@ function renderTerminalTabs() {
         const closeBtn = tabElement.querySelector('.tab-close');
         closeBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            closeTerminal(terminalId);
+            if (confirm(`Close ${terminal.name}? This will terminate the process.`)) {
+                closeTerminal(terminalId, false);
+            }
         });
         
         tabsContainer.appendChild(tabElement);
     });
+    
+    // Add detached terminals section if any exist
+    if (detachedTerminals.length > 0) {
+        const separator = document.createElement('div');
+        separator.className = 'terminal-tabs-separator';
+        separator.innerHTML = '<span>DETACHED</span>';
+        tabsContainer.appendChild(separator);
+        
+        detachedTerminals.forEach(detached => {
+            const tabElement = document.createElement('div');
+            tabElement.className = 'terminal-tab detached';
+            
+            const runtime = Date.now() - detached.startTime;
+            const hours = Math.floor(runtime / 3600000);
+            const minutes = Math.floor((runtime % 3600000) / 60000);
+            
+            tabElement.innerHTML = `
+                <i class="fas fa-plug"></i>
+                <span class="terminal-name">${detached.name}</span>
+                <span class="terminal-runtime">${hours}h ${minutes}m</span>
+                <button class="tab-reconnect" title="Reconnect">
+                    <i class="fas fa-link"></i>
+                </button>
+            `;
+            
+            // Reconnect button click
+            const reconnectBtn = tabElement.querySelector('.tab-reconnect');
+            reconnectBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                reconnectToDetachedTerminal(detached.terminalId, detached.name);
+            });
+            
+            tabsContainer.appendChild(tabElement);
+        });
+    }
+}
+
+function reconnectToDetachedTerminal(detachedTerminalId, name) {
+    console.log(`[TERMINAL] Reconnecting to detached terminal ${detachedTerminalId}`);
+    
+    // Create a new terminal UI instance
+    terminalCounter++;
+    const terminalId = `terminal-${terminalCounter}`;
+    
+    // Create terminal with same configuration
+    const terminalConfig = {
+        cursorBlink: true,
+        cursorStyle: 'underline',
+        fontSize: 13,
+        fontFamily: 'Fira Code, Consolas, Monaco, "Courier New", monospace',
+        scrollback: 5000,
+        theme: {
+            background: '#000000',
+            foreground: '#00ff41',
+            cursor: '#39ff14',
+            cursorAccent: '#39ff14',
+            selection: 'rgba(0, 255, 65, 0.3)',
+            black: '#000000',
+            red: '#ff0040',
+            green: '#00ff41',
+            yellow: '#ffff00',
+            blue: '#0080ff',
+            magenta: '#ff00ff',
+            cyan: '#00ffff',
+            white: '#00ff41',
+            brightBlack: '#808080',
+            brightRed: '#ff4040',
+            brightGreen: '#40ff40',
+            brightYellow: '#ffff40',
+            brightBlue: '#4080ff',
+            brightMagenta: '#ff40ff',
+            brightCyan: '#40ffff',
+            brightWhite: '#00ff41'
+        }
+    };
+    
+    let terminal;
+    try {
+        terminal = new window.Terminal(terminalConfig);
+    } catch (error) {
+        console.error('[TERMINAL] Error creating terminal:', error);
+        showNotification('TERMINAL CREATION ERROR', 'error');
+        return;
+    }
+    
+    // Create terminal UI elements (similar to createNewTerminal)
+    const terminalContent = document.getElementById('terminal-content');
+    const terminalInstance = document.createElement('div');
+    terminalInstance.className = 'terminal-instance';
+    terminalInstance.id = terminalId;
+    terminalInstance.style.width = '100%';
+    terminalInstance.style.height = '100%';
+    
+    const terminalContainer = document.createElement('div');
+    terminalContainer.className = 'terminal-xterm-container';
+    terminalContainer.style.width = '100%';
+    terminalContainer.style.flex = '1';
+    terminalContainer.style.overflow = 'hidden';
+    terminalContainer.style.position = 'relative';
+    terminalContainer.style.backgroundColor = '#000';
+    
+    const statusBar = document.createElement('div');
+    statusBar.className = 'terminal-status-bar';
+    statusBar.innerHTML = `
+        <div class="status-left">
+            <div class="status-item">
+                <i class="fas fa-terminal"></i>
+                <span class="terminal-type">bash</span>
+            </div>
+            <div class="status-item">
+                <i class="fas fa-server"></i>
+                <span class="terminal-host">localhost</span>
+            </div>
+            <div class="status-item">
+                <i class="fas fa-folder"></i>
+                <span class="terminal-cwd">~/workspace</span>
+            </div>
+        </div>
+        <div class="status-right">
+            <div class="status-item">
+                <span class="terminal-size">80x24</span>
+            </div>
+            <div class="encoding">UTF-8</div>
+        </div>
+    `;
+    
+    terminalInstance.appendChild(terminalContainer);
+    terminalInstance.appendChild(statusBar);
+    terminalContent.appendChild(terminalInstance);
+    
+    try {
+        terminal.open(terminalContainer);
+        console.log(`[TERMINAL] Terminal ${terminalId} opened for reconnection`);
+    } catch (error) {
+        console.error('[TERMINAL] Error opening terminal:', error);
+        terminalInstance.remove();
+        return;
+    }
+    
+    // Store terminal data
+    terminals[terminalId] = {
+        terminal: terminal,
+        sessionId: generateSessionId(),
+        element: terminalInstance,
+        socketId: null, // Will be set after reconnection
+        name: name || `Terminal ${terminalCounter}`,
+        resizeObserver: null
+    };
+    
+    // Set up terminal fit function
+    const fitTerminal = () => {
+        if (terminalContainer.offsetWidth > 0 && terminalContainer.offsetHeight > 0) {
+            try {
+                const padding = 20;
+                const containerWidth = terminalContainer.clientWidth - (padding * 2);
+                const containerHeight = terminalContainer.clientHeight - (padding * 2) - 24;
+                
+                const cellWidth = 8.5;
+                const cellHeight = 16;
+                
+                const cols = Math.max(80, Math.floor(containerWidth / cellWidth));
+                const rows = Math.max(10, Math.floor(containerHeight / cellHeight));
+                
+                const finalCols = Math.min(cols, 200);
+                const finalRows = Math.min(rows, 50);
+                
+                if (terminal.cols !== finalCols || terminal.rows !== finalRows) {
+                    terminal.resize(finalCols, finalRows);
+                    
+                    const sizeDisplay = statusBar.querySelector('.terminal-size');
+                    if (sizeDisplay) {
+                        sizeDisplay.textContent = `${finalCols}x${finalRows}`;
+                    }
+                    
+                    // Notify server of resize if connected
+                    if (socket && socket.connected && terminals[terminalId].socketId) {
+                        socket.emit('terminal:resize', {
+                            terminalId: terminals[terminalId].socketId,
+                            cols: finalCols,
+                            rows: finalRows
+                        });
+                    }
+                }
+            } catch (e) {
+                console.warn('[TERMINAL] Fit error:', e);
+            }
+        }
+    };
+    
+    terminal.fitFunction = fitTerminal;
+    
+    // Set up resize observer
+    const resizeObserver = new ResizeObserver(() => {
+        if (terminalContainer.offsetWidth > 0 && terminalContainer.offsetHeight > 0) {
+            setTimeout(fitTerminal, 100);
+        }
+    });
+    resizeObserver.observe(terminalContainer);
+    resizeObserver.observe(terminalInstance);
+    terminals[terminalId].resizeObserver = resizeObserver;
+    
+    // Set as active
+    setActiveTerminal(terminalId);
+    
+    // Send reconnect request to server
+    if (socket && socket.connected) {
+        socket.emit('terminal:reconnect', {
+            detachedTerminalId: detachedTerminalId,
+            terminalId: terminalId,
+            cols: terminal.cols,
+            rows: terminal.rows
+        });
+    }
+    
+    // Set up terminal data handler
+    terminal.onData((data) => {
+        if (socket && socket.connected && terminals[terminalId] && terminals[terminalId].socketId) {
+            socket.emit('terminal:data', { 
+                data: data, 
+                terminalId: terminals[terminalId].socketId 
+            });
+        }
+    });
+    
+    // Fit terminal after setup
+    setTimeout(() => {
+        fitTerminal();
+        terminal.refresh(0, terminal.rows - 1);
+    }, 300);
+    
+    renderTerminalTabs();
+    updateTerminalCount();
+}
+
+function updateDetachedTerminalsList() {
+    // Request updated list of detached terminals
+    if (socket && socket.connected) {
+        socket.emit('terminal:list-detached');
+    }
 }
 
 function updateTerminalCount() {
@@ -3952,3 +4347,203 @@ document.addEventListener('DOMContentLoaded', function() {
         fileOnlyInput.addEventListener('change', handleFileUpload);
     }
 });
+
+// Auto-reconnect to persistent terminal
+function autoReconnectToPersistentTerminal(persistentTerminalId, name) {
+    console.log(`[TERMINAL] Auto-reconnecting to persistent terminal ${persistentTerminalId}`);
+    
+    // Create a new terminal UI instance
+    terminalCounter++;
+    const terminalId = `terminal-${terminalCounter}`;
+    
+    // Create terminal with same configuration
+    const terminalConfig = {
+        cursorBlink: true,
+        cursorStyle: 'underline',
+        fontSize: 13,
+        fontFamily: 'Fira Code, Consolas, Monaco, "Courier New", monospace',
+        scrollback: 5000,
+        theme: {
+            background: '#000000',
+            foreground: '#00ff41',
+            cursor: '#39ff14',
+            cursorAccent: '#39ff14',
+            selection: 'rgba(0, 255, 65, 0.3)',
+            black: '#000000',
+            red: '#ff0040',
+            green: '#00ff41',
+            yellow: '#ffff00',
+            blue: '#0080ff',
+            magenta: '#ff00ff',
+            cyan: '#00ffff',
+            white: '#00ff41',
+            brightBlack: '#808080',
+            brightRed: '#ff4040',
+            brightGreen: '#40ff40',
+            brightYellow: '#ffff40',
+            brightBlue: '#4080ff',
+            brightMagenta: '#ff40ff',
+            brightCyan: '#40ffff',
+            brightWhite: '#00ff41'
+        }
+    };
+    
+    let terminal;
+    try {
+        terminal = new window.Terminal(terminalConfig);
+    } catch (error) {
+        console.error('[TERMINAL] Error creating terminal:', error);
+        showNotification('TERMINAL CREATION ERROR', 'error');
+        return;
+    }
+    
+    // Create terminal UI elements
+    const terminalContent = document.getElementById('terminal-content');
+    const terminalInstance = document.createElement('div');
+    terminalInstance.className = 'terminal-instance';
+    terminalInstance.id = terminalId;
+    terminalInstance.style.width = '100%';
+    terminalInstance.style.height = '100%';
+    
+    const terminalContainer = document.createElement('div');
+    terminalContainer.className = 'terminal-xterm-container';
+    terminalContainer.style.width = '100%';
+    terminalContainer.style.flex = '1';
+    terminalContainer.style.overflow = 'hidden';
+    terminalContainer.style.position = 'relative';
+    terminalContainer.style.backgroundColor = '#000';
+    
+    const statusBar = document.createElement('div');
+    statusBar.className = 'terminal-status-bar';
+    statusBar.innerHTML = `
+        <div class="status-left">
+            <div class="status-item">
+                <i class="fas fa-terminal"></i>
+                <span class="terminal-type">bash</span>
+            </div>
+            <div class="status-item">
+                <i class="fas fa-server"></i>
+                <span class="terminal-host">localhost</span>
+            </div>
+            <div class="status-item">
+                <i class="fas fa-folder"></i>
+                <span class="terminal-cwd">~/workspace</span>
+            </div>
+        </div>
+        <div class="status-right">
+            <div class="status-item">
+                <span class="terminal-size">80x24</span>
+            </div>
+            <div class="encoding">UTF-8</div>
+        </div>
+    `;
+    
+    terminalInstance.appendChild(terminalContainer);
+    terminalInstance.appendChild(statusBar);
+    terminalContent.appendChild(terminalInstance);
+    
+    try {
+        terminal.open(terminalContainer);
+        console.log(`[TERMINAL] Terminal ${terminalId} opened for auto-reconnection`);
+    } catch (error) {
+        console.error('[TERMINAL] Error opening terminal:', error);
+        terminalInstance.remove();
+        return;
+    }
+    
+    // Store terminal data
+    terminals[terminalId] = {
+        terminal: terminal,
+        sessionId: generateSessionId(),
+        element: terminalInstance,
+        socketId: null, // Will be set after reconnection
+        name: name || `Terminal ${terminalCounter}`,
+        resizeObserver: null
+    };
+    
+    // Set up terminal fit function
+    const fitTerminal = () => {
+        if (terminalContainer.offsetWidth > 0 && terminalContainer.offsetHeight > 0) {
+            try {
+                const padding = 20;
+                const containerWidth = terminalContainer.clientWidth - (padding * 2);
+                const containerHeight = terminalContainer.clientHeight - (padding * 2) - 24;
+                
+                const cellWidth = 8.5;
+                const cellHeight = 16;
+                
+                const cols = Math.max(80, Math.floor(containerWidth / cellWidth));
+                const rows = Math.max(10, Math.floor(containerHeight / cellHeight));
+                
+                const finalCols = Math.min(cols, 200);
+                const finalRows = Math.min(rows, 50);
+                
+                if (terminal.cols !== finalCols || terminal.rows !== finalRows) {
+                    terminal.resize(finalCols, finalRows);
+                    
+                    const sizeDisplay = statusBar.querySelector('.terminal-size');
+                    if (sizeDisplay) {
+                        sizeDisplay.textContent = `${finalCols}x${finalRows}`;
+                    }
+                    
+                    // Notify server of resize if connected
+                    if (socket && socket.connected && terminals[terminalId].socketId) {
+                        socket.emit('terminal:resize', {
+                            terminalId: terminals[terminalId].socketId,
+                            cols: finalCols,
+                            rows: finalRows
+                        });
+                    }
+                }
+            } catch (e) {
+                console.warn('[TERMINAL] Fit error:', e);
+            }
+        }
+    };
+    
+    terminal.fitFunction = fitTerminal;
+    
+    // Set up resize observer
+    const resizeObserver = new ResizeObserver(() => {
+        if (terminalContainer.offsetWidth > 0 && terminalContainer.offsetHeight > 0) {
+            setTimeout(fitTerminal, 100);
+        }
+    });
+    resizeObserver.observe(terminalContainer);
+    resizeObserver.observe(terminalInstance);
+    terminals[terminalId].resizeObserver = resizeObserver;
+    
+    // Set as active
+    setActiveTerminal(terminalId);
+    
+    // Send auto-reconnect request to server
+    if (socket && socket.connected) {
+        terminal.writeln('\x1b[33m[SYSTEM] Reconnecting to persistent terminal...\x1b[0m');
+        
+        socket.emit('terminal:auto-reconnect', {
+            persistentTerminalId: persistentTerminalId,
+            terminalId: terminalId,
+            cols: terminal.cols,
+            rows: terminal.rows
+        });
+    }
+    
+    // Set up terminal data handler
+    terminal.onData((data) => {
+        if (socket && socket.connected && terminals[terminalId] && terminals[terminalId].socketId) {
+            socket.emit('terminal:data', { 
+                data: data, 
+                terminalId: terminals[terminalId].socketId 
+            });
+        }
+    });
+    
+    // Fit terminal after setup
+    setTimeout(() => {
+        fitTerminal();
+        terminal.refresh(0, terminal.rows - 1);
+    }, 300);
+    
+    renderTerminalTabs();
+    updateTerminalCount();
+}

@@ -562,6 +562,8 @@ app.put('/api/file/move', async (req, res) => {
 
 // Socket.IO for terminal functionality
 const terminals = {};
+const detachedTerminals = {}; // Store detached terminals globally
+const persistentTerminals = {}; // Store ALL terminals persistently by user session
 let terminalCounter = 0;
 
 // Performance monitoring
@@ -594,6 +596,10 @@ io.on('connection', (socket) => {
   console.log('[SOCKET] Client connected:', socket.id);
   console.log('[SOCKET] Transport used:', socket.conn.transport.name);
   
+  // Get user session ID from the socket request
+  const sessionId = socket.request.session?.id || 'anonymous';
+  const username = socket.request.session?.username || 'anonymous';
+  
   // Send connection success confirmation
   socket.emit('connection-success', {
     id: socket.id,
@@ -603,6 +609,39 @@ io.on('connection', (socket) => {
   
   // Initialize terminals for this socket
   terminals[socket.id] = {};
+  
+  // Check for existing persistent terminals for this user
+  const userTerminals = [];
+  Object.entries(persistentTerminals).forEach(([termId, term]) => {
+    if (term.sessionId === sessionId || term.username === username) {
+      userTerminals.push({
+        terminalId: termId,
+        name: term.name,
+        startTime: term.startTime,
+        cwd: term.cwd,
+        persistent: true,
+        running: term.process && !term.process.killed
+      });
+    }
+  });
+  
+  // Also include detached terminals
+  const detachedList = Object.entries(detachedTerminals).map(([id, term]) => ({
+    terminalId: id,
+    name: term.name,
+    startTime: term.startTime,
+    cwd: term.cwd,
+    command: term.command || 'bash',
+    detached: true
+  }));
+  
+  // Send both persistent and detached terminals
+  if (userTerminals.length > 0 || detachedList.length > 0) {
+    socket.emit('terminal:persistent-list', {
+      persistent: userTerminals,
+      detached: detachedList
+    });
+  }
 
   socket.on('terminal:create', (data) => {
     terminalCounter++;
@@ -634,9 +673,6 @@ io.on('connection', (socket) => {
       encoding: null // Use buffer mode for better performance
     });
     
-    // Note: Setting process priority requires elevated privileges
-    // Removed renice command to avoid permission errors
-
     // Performance tracking for this terminal
     performanceStats.set(terminalId, {
       bytesTransferred: 0,
@@ -644,17 +680,25 @@ io.on('connection', (socket) => {
       startTime: Date.now()
     });
 
-    terminals[socket.id][terminalId] = {
+    const terminalData = {
       process: ptyProcess,
       clientTerminalId: data.terminalId,
+      name: data.name || `Terminal ${terminalCounter}`,
+      startTime: Date.now(),
+      cwd: WORKSPACE_DIR,
+      sessionId: sessionId,
+      username: username,
       buffer: [], // Buffer for batching data
-      bufferTimer: null
+      bufferTimer: null,
+      outputHistory: [] // Store output history for reconnection
     };
 
-    // Optimized data handler with batching
-    const terminalData = terminals[socket.id][terminalId];
+    terminals[socket.id][terminalId] = terminalData;
     
-    // Performance: Use a more efficient buffer strategy
+    // Also store in persistent terminals
+    persistentTerminals[terminalId] = terminalData;
+
+    // Optimized data handler with batching
     let dataBuffer = [];
     let bufferSize = 0;
     const MAX_BUFFER_SIZE = 4096; // 4KB chunks
@@ -666,6 +710,12 @@ io.on('connection', (socket) => {
         stats.bytesTransferred += outputData.length;
         stats.messagesCount++;
       }
+      
+      // Store output in history (keep last 10000 lines)
+      if (terminalData.outputHistory.length > 10000) {
+        terminalData.outputHistory.shift();
+      }
+      terminalData.outputHistory.push(outputData);
       
       // Add to buffer
       dataBuffer.push(outputData);
@@ -766,19 +816,285 @@ io.on('connection', (socket) => {
     if (terminals[socket.id] && terminals[socket.id][data.terminalId]) {
       terminals[socket.id][data.terminalId].process.resize(data.cols, data.rows);
     }
-  });
-
-  socket.on('terminal:close', (data) => {
-    if (terminals[socket.id] && terminals[socket.id][data.terminalId]) {
-      terminals[socket.id][data.terminalId].process.kill();
-      delete terminals[socket.id][data.terminalId];
-      socket.emit('terminal:closed', {
-        terminalId: data.terminalId
+    });
+  
+  // New event to reconnect to detached terminal (for backward compatibility)
+  socket.on('terminal:reconnect', (data) => {
+    const detachedId = data.detachedTerminalId;
+    const clientTerminalId = data.terminalId;
+    
+    if (detachedTerminals[detachedId]) {
+      console.log(`[TERMINAL] Reconnecting to detached terminal ${detachedId}`);
+      
+      const detachedTerminal = detachedTerminals[detachedId];
+      
+      // Move terminal from detached to active
+      terminals[socket.id][detachedId] = detachedTerminal;
+      delete detachedTerminals[detachedId];
+      
+      // Update client terminal ID mapping
+      terminals[socket.id][detachedId].clientTerminalId = clientTerminalId;
+      
+      // Reattach data handler
+      const terminalData = terminals[socket.id][detachedId];
+      
+      // Clear any existing listeners first
+      terminalData.process.removeAllListeners('data');
+      
+      // Set up new data handler
+      let dataBuffer = [];
+      let bufferSize = 0;
+      const MAX_BUFFER_SIZE = 4096;
+      const BATCH_DELAY = 2;
+      
+      terminalData.process.on('data', (outputData) => {
+        const stats = performanceStats.get(detachedId);
+        if (stats) {
+          stats.bytesTransferred += outputData.length;
+          stats.messagesCount++;
+        }
+        
+        dataBuffer.push(outputData);
+        bufferSize += outputData.length;
+        
+        if (terminalData.bufferTimer) {
+          clearTimeout(terminalData.bufferTimer);
+          terminalData.bufferTimer = null;
+        }
+        
+        if (bufferSize >= MAX_BUFFER_SIZE) {
+          sendBufferedData();
+        } else {
+          terminalData.bufferTimer = setTimeout(sendBufferedData, BATCH_DELAY);
+        }
+      });
+      
+      function sendBufferedData() {
+        if (dataBuffer.length > 0) {
+          const combinedData = dataBuffer.length === 1 
+            ? dataBuffer[0] 
+            : Buffer.concat(dataBuffer);
+          
+          dataBuffer = [];
+          bufferSize = 0;
+          
+          socket.emit('terminal:data', {
+            terminalId: detachedId,
+            data: combinedData,
+            binary: true
+          });
+        }
+      }
+      
+      // Send confirmation
+      socket.emit('terminal:reconnected', {
+        terminalId: detachedId,
+        clientTerminalId: clientTerminalId,
+        name: terminalData.name
+      });
+      
+      // Send a command to refresh the prompt
+      terminalData.process.write('\n');
+      
+    } else {
+      socket.emit('terminal:error', {
+        message: 'Detached terminal not found',
+        terminalId: detachedId
       });
     }
   });
+  
+  // List detached terminals
+  socket.on('terminal:list-detached', () => {
+    const detachedList = Object.entries(detachedTerminals).map(([id, term]) => ({
+      terminalId: id,
+      name: term.name,
+      startTime: term.startTime,
+      cwd: term.cwd
+    }));
+    
+    socket.emit('terminal:detached-list', detachedList);
+  });
+  
+  // Auto-reconnect to persistent terminal
+  socket.on('terminal:auto-reconnect', (data) => {
+    const persistentId = data.persistentTerminalId;
+    const clientTerminalId = data.terminalId;
+    
+    if (persistentTerminals[persistentId]) {
+      console.log(`[TERMINAL] Auto-reconnecting to persistent terminal ${persistentId}`);
+      
+      const persistentTerminal = persistentTerminals[persistentId];
+      
+      // Check if process is still alive
+      if (!persistentTerminal.process || persistentTerminal.process.killed) {
+        socket.emit('terminal:error', {
+          message: 'Terminal process has ended',
+          terminalId: persistentId
+        });
+        delete persistentTerminals[persistentId];
+        return;
+      }
+      
+      // Add to active terminals
+      terminals[socket.id][persistentId] = persistentTerminal;
+      
+      // Update client terminal ID mapping
+      terminals[socket.id][persistentId].clientTerminalId = clientTerminalId;
+      
+      // Reattach data handler
+      const terminalData = terminals[socket.id][persistentId];
+      
+      // Clear any existing listeners first
+      terminalData.process.removeAllListeners('data');
+      
+      // Set up new data handler
+      let dataBuffer = [];
+      let bufferSize = 0;
+      const MAX_BUFFER_SIZE = 4096;
+      const BATCH_DELAY = 2;
+      
+      terminalData.process.on('data', (outputData) => {
+        const stats = performanceStats.get(persistentId);
+        if (stats) {
+          stats.bytesTransferred += outputData.length;
+          stats.messagesCount++;
+        }
+        
+        // Store in history
+        if (terminalData.outputHistory.length > 10000) {
+          terminalData.outputHistory.shift();
+        }
+        terminalData.outputHistory.push(outputData);
+        
+        dataBuffer.push(outputData);
+        bufferSize += outputData.length;
+        
+        if (terminalData.bufferTimer) {
+          clearTimeout(terminalData.bufferTimer);
+          terminalData.bufferTimer = null;
+        }
+        
+        if (bufferSize >= MAX_BUFFER_SIZE) {
+          sendBufferedData();
+        } else {
+          terminalData.bufferTimer = setTimeout(sendBufferedData, BATCH_DELAY);
+        }
+      });
+      
+      function sendBufferedData() {
+        if (dataBuffer.length > 0) {
+          const combinedData = dataBuffer.length === 1 
+            ? dataBuffer[0] 
+            : Buffer.concat(dataBuffer);
+          
+          dataBuffer = [];
+          bufferSize = 0;
+          
+          socket.emit('terminal:data', {
+            terminalId: persistentId,
+            data: combinedData,
+            binary: true
+          });
+        }
+      }
+      
+      // Send confirmation with history
+      socket.emit('terminal:auto-reconnected', {
+        terminalId: persistentId,
+        clientTerminalId: clientTerminalId,
+        name: terminalData.name,
+        // Send last 1000 lines of history
+        history: terminalData.outputHistory.slice(-1000)
+      });
+      
+    } else {
+      socket.emit('terminal:error', {
+        message: 'Persistent terminal not found',
+        terminalId: persistentId
+      });
+    }
+  });
+  
+  // Modified close handler to support persistence
+  socket.on('terminal:close', (data) => {
+    if (terminals[socket.id] && terminals[socket.id][data.terminalId]) {
+      const terminal = terminals[socket.id][data.terminalId];
+      
+      if (data.detach || data.keepAlive) {
+        // Keep terminal alive but remove from active
+        console.log(`[TERMINAL] Keeping terminal alive: ${data.terminalId}`);
+        
+        // Remove data listeners to prevent memory leaks
+        terminal.process.removeAllListeners('data');
+        
+        // Remove from active terminals only
+        delete terminals[socket.id][data.terminalId];
+        
+        // Terminal remains in persistentTerminals
+        
+        // Also handle detach for backward compatibility
+        if (data.detach && !persistentTerminals[data.terminalId]) {
+          detachedTerminals[data.terminalId] = {
+            process: terminal.process,
+            name: terminal.name || `Terminal ${data.terminalId}`,
+            startTime: terminal.startTime || Date.now(),
+            cwd: terminal.cwd || WORKSPACE_DIR,
+            clientTerminalId: terminal.clientTerminalId,
+            buffer: [],
+            bufferTimer: null
+          };
+          
+          socket.emit('terminal:detached', {
+            terminalId: data.terminalId,
+            name: terminal.name || `Terminal ${data.terminalId}`
+          });
+        } else {
+          socket.emit('terminal:kept-alive', {
+            terminalId: data.terminalId,
+            name: terminal.name || `Terminal ${data.terminalId}`
+          });
+        }
+        
+      } else {
+        // Kill terminal completely
+        console.log(`[TERMINAL] Killing terminal ${data.terminalId}`);
+        terminal.process.kill();
+        
+        // Remove from both active and persistent
+        delete terminals[socket.id][data.terminalId];
+        delete persistentTerminals[data.terminalId];
+        delete detachedTerminals[data.terminalId];
+        
+        socket.emit('terminal:closed', {
+          terminalId: data.terminalId
+        });
+      }
+    }
+  });
+  
+  // List persistent terminals
+  socket.on('terminal:list-persistent', () => {
+    const userTerminals = [];
+    Object.entries(persistentTerminals).forEach(([termId, term]) => {
+      if (term.sessionId === sessionId || term.username === username) {
+        userTerminals.push({
+          terminalId: termId,
+          name: term.name,
+          startTime: term.startTime,
+          cwd: term.cwd,
+          persistent: true,
+          running: term.process && !term.process.killed
+        });
+      }
+    });
+    
+    socket.emit('terminal:persistent-list', {
+      persistent: userTerminals,
+      detached: [] // We're replacing detached with persistent
+    });
+  });
 
-  // Ping handler for latency measurement
   socket.on('ping', (callback) => {
     if (typeof callback === 'function') {
       callback();
@@ -788,10 +1104,14 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log('[SOCKET] Client disconnected:', socket.id);
     
-    // Clean up all terminals for this socket
+    // Remove active terminal references but keep persistent terminals alive
     if (terminals[socket.id]) {
-      Object.values(terminals[socket.id]).forEach(terminal => {
-        terminal.process.kill();
+      Object.entries(terminals[socket.id]).forEach(([termId, terminal]) => {
+        // Remove data listeners to prevent memory leaks
+        if (terminal.process) {
+          terminal.process.removeAllListeners('data');
+        }
+        // Terminal remains in persistentTerminals and keeps running
       });
       delete terminals[socket.id];
     }
